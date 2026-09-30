@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Parent Election</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="shell">
+
+  <header class="bar">
+    <div>
+      <h1 data-i18n="appTitle">Parent Election</h1>
+      <p class="sub" data-i18n="appSub">Vote for your site representative</p>
+    </div>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true">English</button>
+      <button type="button" data-lang="es" aria-pressed="false">Espa&ntilde;ol</button>
+    </div>
+  </header>
+
+  <div id="banner" class="notice hidden" role="status" aria-live="polite"></div>
+
+  <!-- Step 1: email + the code we mailed them -->
+  <section id="step-login" class="card">
+    <h2 data-i18n="loginHeading">Sign in to vote</h2>
+    <p class="lede" data-i18n="loginLede">Enter your email address and the voting code your center sent you.</p>
+    <form id="form-login" novalidate>
+      <label class="field" for="email" data-i18n="emailLabel">Email address</label>
+      <input type="email" id="email" name="email" autocomplete="email" inputmode="email"
+             autocapitalize="off" spellcheck="false" required>
+
+      <label class="field" for="code" style="margin-top:20px" data-i18n="codeLabel">Voting code</label>
+      <input type="text" id="code" name="code" class="code" autocomplete="one-time-code"
+             autocapitalize="characters" spellcheck="false" maxlength="12" required>
+
+      <button type="submit" class="primary" data-i18n="loginButton">Sign in</button>
+    </form>
+    <p class="privacy" data-i18n="loginHelp">Lost your code? Contact your center and they can send you a new one.</p>
+  </section>
+
+  <!-- Step 2: the ballot -->
+  <section id="step-ballot" class="card hidden">
+    <h2 id="ballot-heading"></h2>
+    <p class="lede" id="ballot-lede"></p>
+    <form id="form-ballot" novalidate>
+      <div class="choices" id="choices"></div>
+      <button type="submit" class="primary" id="submit-vote" data-i18n="ballotButton">Cast my vote</button>
+    </form>
+    <p class="privacy" data-i18n="ballotPrivacy">Your choice is stored separately from your name. Your center can see that you voted, but not who you voted for.</p>
+  </section>
+
+  <!-- Step 3: done -->
+  <section id="step-done" class="card hidden">
+    <div class="tick" aria-hidden="true">&check;</div>
+    <h2 data-i18n="doneHeading">Your vote has been recorded</h2>
+    <p class="lede" data-i18n="doneLede">Thank you. You can close this page now. You cannot vote again, and no one can see how you voted.</p>
+  </section>
+
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

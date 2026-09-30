@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Election Admin</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="shell shell--wide">
+
+  <header class="bar">
+    <div>
+      <h1>Election Admin</h1>
+      <p class="sub" id="admin-sub">Turnout and results</p>
+    </div>
+    <div class="row-actions" id="header-actions" style="margin:0"></div>
+  </header>
+
+  <div id="banner" class="notice hidden" role="status" aria-live="polite"></div>
+
+  <!-- Sign in -->
+  <section id="admin-login" class="card" style="max-width:520px">
+    <h2>Admin sign-in</h2>
+    <p class="lede">Enter your admin email address and your access code.</p>
+    <form id="form-admin-login" novalidate>
+      <label class="field" for="admin-email">Email address</label>
+      <input type="email" id="admin-email" autocomplete="email" autocapitalize="off" spellcheck="false" required>
+
+      <label class="field" for="admin-code" style="margin-top:20px">Access code</label>
+      <input type="text" id="admin-code" class="code" autocomplete="one-time-code"
+             autocapitalize="characters" spellcheck="false" maxlength="12" required>
+
+      <button type="submit" class="primary">Sign in</button>
+    </form>
+  </section>
+
+  <!-- Overview -->
+  <section id="admin-overview" class="hidden">
+    <div class="site-grid" id="kpi-row" style="margin-bottom:22px"></div>
+    <div class="site-grid" id="site-grid"></div>
+  </section>
+
+  <!-- Roster drill-down -->
+  <section id="admin-roster" class="card hidden">
+    <h2 id="roster-title"></h2>
+    <p class="lede" id="roster-lede"></p>
+    <table class="roster">
+      <thead id="roster-head"></thead>
+      <tbody id="roster-body"></tbody>
+    </table>
+  </section>
+
+  <!-- Results drill-down -->
+  <section id="admin-results" class="card hidden">
+    <h2 id="results-title"></h2>
+    <p class="lede" id="results-lede"></p>
+    <ul class="bar-list" id="results-body"></ul>
+    <p class="elected-key" id="results-key"></p>
+  </section>
+
+</div>
+<script src="/admin.js"></script>
+</body>
+</html>
