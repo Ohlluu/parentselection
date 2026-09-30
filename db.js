@@ -170,9 +170,13 @@ const SCHEMA = [
     results_released BOOLEAN NOT NULL DEFAULT FALSE
   )`,
 
+  // Each site runs several contests - Chair, Vice Chair, Secretary,
+  // Community Rep - and a candidate stands for exactly one of them.
   `CREATE TABLE IF NOT EXISTS candidates (
     id UUID PRIMARY KEY,
     site_id TEXT NOT NULL REFERENCES sites(id),
+    position TEXT NOT NULL,
+    position_order INTEGER NOT NULL DEFAULT 0,
     name TEXT NOT NULL,
     blurb TEXT,
     sort_order INTEGER NOT NULL DEFAULT 0
@@ -200,11 +204,17 @@ const SCHEMA = [
   // insertion order carries nothing. Postgres additionally exposes row version
   // order through the hidden xmin column, which update order WOULD leak - that
   // is what `election.js finalize` rewrites away before results are read.
+  // One row per voter PER CONTEST, not one row per voter. Keeping a parent's
+  // four choices on a single row would make the combination a fingerprint: at
+  // a small site, if only one person picked a given Chair candidate, that row
+  // is identifiably theirs and exposes their other three votes too. Separate
+  // rows, each filled at random independently, break that linkage.
   `CREATE TABLE IF NOT EXISTS ballots (
     id UUID PRIMARY KEY,
     site_id TEXT NOT NULL REFERENCES sites(id),
+    position TEXT NOT NULL,
     filled BOOLEAN NOT NULL DEFAULT FALSE,
-    choice_ids JSONB
+    choice_id UUID
   )`,
 
   `CREATE TABLE IF NOT EXISTS admins (
@@ -217,7 +227,7 @@ const SCHEMA = [
     failed_attempts INTEGER NOT NULL DEFAULT 0
   )`,
 
-  `CREATE INDEX IF NOT EXISTS idx_ballots_open ON ballots(site_id, filled)`,
+  `CREATE INDEX IF NOT EXISTS idx_ballots_open ON ballots(site_id, position, filled)`,
   `CREATE INDEX IF NOT EXISTS idx_voters_site ON voters(site_id)`,
 ];
 

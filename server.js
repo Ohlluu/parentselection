@@ -128,18 +128,30 @@ app.get('/api/ballot', requireVoter, async (req, res) => {
     );
     if (!voter) return res.status(401).json({ error: 'not_signed_in' });
 
-    const candidates = await all(
-      `SELECT id, name, blurb FROM candidates WHERE site_id = ? ORDER BY sort_order, name`,
+    const rows = await all(
+      `SELECT id, name, blurb, position FROM candidates WHERE site_id = ?
+        ORDER BY position_order, position, sort_order, name`,
       [voter.site_id]
     );
+
+    // Group into contests - Chair, Vice Chair, Secretary, Community Rep -
+    // preserving the order the query returned them in.
+    const contests = [];
+    for (const row of rows) {
+      let contest = contests.find((c) => c.position === row.position);
+      if (!contest) {
+        contest = { position: row.position, candidates: [] };
+        contests.push(contest);
+      }
+      contest.candidates.push({ id: row.id, name: row.name, blurb: row.blurb });
+    }
 
     res.json({
       voterName: voter.full_name,
       siteName: voter.site_name,
-      seats: voter.seats,
       status: voter.status,
       hasVoted: voter.has_voted,
-      candidates,
+      contests,
     });
   } catch (err) {
     console.error('ballot failed:', err.message);
@@ -149,10 +161,11 @@ app.get('/api/ballot', requireVoter, async (req, res) => {
 
 app.post('/api/vote', requireVoter, async (req, res) => {
   try {
-    const choices = Array.isArray(req.body.choiceIds) ? req.body.choiceIds : [];
+    // { "Chair": "<candidate uuid>", "Vice Chair": "<candidate uuid>", ... }
+    const choices = (req.body && typeof req.body.choices === 'object' && req.body.choices) || {};
 
     const voter = await get(
-      `SELECT v.id, v.site_id, v.has_voted, s.seats, s.status
+      `SELECT v.id, v.site_id, v.has_voted, s.status
          FROM voters v JOIN sites s ON s.id = v.site_id
         WHERE v.id = ?`,
       [req.voterId]
@@ -161,28 +174,34 @@ app.post('/api/vote', requireVoter, async (req, res) => {
     if (voter.status !== 'open') return res.status(409).json({ error: 'not_open' });
     if (voter.has_voted) return res.status(409).json({ error: 'already_voted' });
 
-    const unique = [...new Set(choices)];
-    if (unique.length === 0) return res.status(400).json({ error: 'no_selection' });
-    if (unique.length > voter.seats) return res.status(400).json({ error: 'too_many_selections' });
+    // Build the site's real ballot, then check the submission against it.
+    const candidates = await all(
+      'SELECT id, position FROM candidates WHERE site_id = ?',
+      [voter.site_id]
+    );
+    const positionOf = new Map(candidates.map((c) => [c.id, c.position]));
+    const positions = [...new Set(candidates.map((c) => c.position))];
 
-    // Every choice must be a real candidate at this voter's own site.
-    const placeholders = unique.map(() => '?').join(',');
-    let valid;
-    try {
-      valid = await all(
-        `SELECT id FROM candidates WHERE site_id = ? AND id IN (${placeholders})`,
-        [voter.site_id, ...unique]
-      );
-    } catch {
-      // A malformed id fails the UUID cast rather than matching nothing.
-      return res.status(400).json({ error: 'invalid_choice' });
+    // Every contest must be answered. A parent can only vote once, so a
+    // half-filled ballot would silently forfeit the rest, and turnout would
+    // stop meaning "this parent voted in the election".
+    const answered = positions.filter((p) => choices[p]);
+    if (answered.length === 0) return res.status(400).json({ error: 'no_selection' });
+    if (answered.length !== positions.length) {
+      return res.status(400).json({ error: 'incomplete_ballot', missing: positions.filter((p) => !choices[p]) });
     }
-    if (valid.length !== unique.length) return res.status(400).json({ error: 'invalid_choice' });
+    // One vote per contest, and the candidate must stand in that contest at
+    // this voter's own site.
+    for (const position of positions) {
+      if (positionOf.get(choices[position]) !== position) {
+        return res.status(400).json({ error: 'invalid_choice' });
+      }
+    }
 
     // THE ONE PLACE identity and choice exist together, and only in memory for
-    // the length of this transaction. Either both happen or neither: the
-    // registry records that this parent voted, and a randomly chosen blank
-    // ballot at their site is filled in. Nothing written links the two.
+    // the length of this transaction. Either all of it happens or none: the
+    // registry records that this parent voted, and one randomly chosen blank
+    // ballot per contest is filled in. Nothing written links the two.
     const outcome = await transaction(async (tx) => {
       // FOR UPDATE so two tabs submitting at once cannot both pass the check.
       const fresh = await tx.get('SELECT has_voted FROM voters WHERE id = ? FOR UPDATE', [voter.id]);
@@ -190,15 +209,17 @@ app.post('/api/vote', requireVoter, async (req, res) => {
 
       await tx.run('UPDATE voters SET has_voted = TRUE WHERE id = ?', [voter.id]);
 
-      const result = await tx.run(
-        `UPDATE ballots SET filled = TRUE, choice_ids = ?
-          WHERE id = (SELECT id FROM ballots
-                       WHERE site_id = ? AND filled = FALSE
-                       ORDER BY random() LIMIT 1
-                       FOR UPDATE SKIP LOCKED)`,
-        [JSON.stringify([...unique].sort()), voter.site_id]
-      );
-      if (result.changes !== 1) throw new Error('no blank ballot available');
+      for (const position of positions) {
+        const result = await tx.run(
+          `UPDATE ballots SET filled = TRUE, choice_id = ?
+            WHERE id = (SELECT id FROM ballots
+                         WHERE site_id = ? AND position = ? AND filled = FALSE
+                         ORDER BY random() LIMIT 1
+                         FOR UPDATE SKIP LOCKED)`,
+          [choices[position], voter.site_id, position]
+        );
+        if (result.changes !== 1) throw new Error(`no blank ballot available for ${position}`);
+      }
       return 'ok';
     });
 
@@ -281,9 +302,10 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
     // COUNT() is a bigint, which node-pg hands back as a string. Cast to int
     // or the dashboard ends up doing "18" + "21" = "1821".
     const sites = await all(
-      `SELECT s.id, s.name, s.seats, s.status, s.results_released,
+      `SELECT s.id, s.name, s.status, s.results_released,
               (SELECT COUNT(*)::int FROM voters v WHERE v.site_id = s.id) AS eligible,
               (SELECT COUNT(*)::int FROM voters v WHERE v.site_id = s.id AND v.has_voted) AS voted,
+              (SELECT COUNT(DISTINCT c.position)::int FROM candidates c WHERE c.site_id = s.id) AS contests,
               (SELECT COUNT(*)::int FROM ballots b WHERE b.site_id = s.id AND b.filled) AS ballots_cast
          FROM sites s ${filter}
         ORDER BY s.name`,
@@ -404,36 +426,41 @@ app.get('/api/admin/results/:siteId', requireAdmin, async (req, res) => {
     }
 
     const candidates = await all(
-      'SELECT id, name FROM candidates WHERE site_id = ? ORDER BY sort_order, name',
+      `SELECT id, name, position FROM candidates WHERE site_id = ?
+        ORDER BY position_order, position, sort_order, name`,
       [req.params.siteId]
     );
     const ballots = await all(
-      'SELECT choice_ids FROM ballots WHERE site_id = ? AND filled',
+      'SELECT position, choice_id FROM ballots WHERE site_id = ? AND filled',
       [req.params.siteId]
     );
 
-    // choice_ids is jsonb, so node-pg has already parsed it into an array.
     const tally = Object.fromEntries(candidates.map((c) => [c.id, 0]));
     for (const ballot of ballots) {
-      for (const id of ballot.choice_ids || []) {
-        if (id in tally) tally[id] += 1;
-      }
+      if (ballot.choice_id in tally) tally[ballot.choice_id] += 1;
     }
 
-    const ranked = candidates
-      .map((c) => ({ id: c.id, name: c.name, votes: tally[c.id] }))
-      .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name));
+    // One contest per position, each electing a single officer.
+    const contests = [];
+    for (const candidate of candidates) {
+      let contest = contests.find((c) => c.position === candidate.position);
+      if (!contest) {
+        contest = { position: candidate.position, ballotsCast: 0, results: [] };
+        contests.push(contest);
+      }
+      contest.results.push({ id: candidate.id, name: candidate.name, votes: tally[candidate.id] });
+    }
+    for (const contest of contests) {
+      contest.ballotsCast = ballots.filter((b) => b.position === contest.position).length;
+      contest.results.sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name));
+      contest.winner = contest.results.length ? contest.results[0].name : null;
+      // A tie for the seat has to be resolved by your bylaws, not by sort
+      // order, so surface it rather than quietly picking one.
+      contest.tied =
+        contest.results.length > 1 && contest.results[0].votes === contest.results[1].votes;
+    }
 
-    res.json({
-      site: { id: site.id, name: site.name, seats: site.seats },
-      ballotsCast: ballots.length,
-      results: ranked,
-      winners: ranked.slice(0, site.seats).map((c) => c.name),
-      // A tie spanning the cutoff has to be resolved by your bylaws, not by
-      // sort order, so surface it rather than quietly picking one.
-      tieAtCutoff:
-        ranked.length > site.seats && ranked[site.seats - 1].votes === ranked[site.seats].votes,
-    });
+    res.json({ site: { id: site.id, name: site.name }, contests });
   } catch (err) {
     console.error('admin/results failed:', err.message);
     res.status(500).json({ error: 'server_error' });

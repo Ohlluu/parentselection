@@ -118,40 +118,62 @@ async function importVoters(rows) {
 
 async function importCandidates(rows) {
   let added = 0;
+  // Contests appear on the ballot in this order unless position_order says
+  // otherwise. Anything unrecognised sorts after the known offices.
+  const DEFAULT_ORDER = ['chair', 'vice chair', 'secretary', 'community rep'];
+
   for (const [index, row] of rows.entries()) {
     const siteId = (row.site_id || '').trim();
     const name = (row.name || row.full_name || '').trim();
-    if (!siteId || !name) {
-      console.warn(`  ! line ${index + 2}: needs both site_id and name, skipped`);
+    const position = (row.position || '').trim();
+
+    if (!siteId || !name || !position) {
+      console.warn(`  ! line ${index + 2}: needs site_id, position and name, skipped`);
       continue;
     }
     await ensureSite(siteId, (row.site_name || '').trim());
 
-    const existing = await get('SELECT id FROM candidates WHERE site_id = ? AND name = ?', [siteId, name]);
+    const known = DEFAULT_ORDER.indexOf(position.toLowerCase());
+    const order = row.position_order !== undefined && row.position_order !== ''
+      ? Number(row.position_order)
+      : (known === -1 ? DEFAULT_ORDER.length : known);
+
+    const existing = await get(
+      'SELECT id FROM candidates WHERE site_id = ? AND position = ? AND name = ?',
+      [siteId, position, name]
+    );
     if (existing) {
-      await run('UPDATE candidates SET blurb = ?, sort_order = ? WHERE id = ?', [
+      await run('UPDATE candidates SET blurb = ?, sort_order = ?, position_order = ? WHERE id = ?', [
         row.blurb || null,
         Number(row.sort_order || 0),
+        order,
         existing.id,
       ]);
       continue;
     }
-    await run('INSERT INTO candidates (id, site_id, name, blurb, sort_order) VALUES (?, ?, ?, ?, ?)', [
-      randomUUID(),
-      siteId,
-      name,
-      row.blurb || null,
-      Number(row.sort_order || 0),
-    ]);
+    await run(
+      `INSERT INTO candidates (id, site_id, position, position_order, name, blurb, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [randomUUID(), siteId, position, order, name, row.blurb || null, Number(row.sort_order || 0)]
+    );
     added++;
   }
-  console.log(`\n  ${added} candidates added.`);
+  console.log(`\n  ${added} candidates added.\n`);
 
   const bySite = await all(
-    `SELECT s.name, COUNT(c.id)::int AS n FROM sites s
-       LEFT JOIN candidates c ON c.site_id = s.id GROUP BY s.id, s.name ORDER BY s.name`
+    `SELECT s.name AS site, c.position, COUNT(c.id)::int AS n
+       FROM sites s JOIN candidates c ON c.site_id = s.id
+      GROUP BY s.name, c.position, c.position_order
+      ORDER BY s.name, c.position_order, c.position`
   );
-  for (const site of bySite) console.log(`    ${site.name}: ${site.n} candidates`);
+  let current = null;
+  for (const row of bySite) {
+    if (row.site !== current) {
+      console.log(`    ${row.site}`);
+      current = row.site;
+    }
+    console.log(`      ${row.position.padEnd(18)} ${row.n} candidate(s)`);
+  }
 }
 
 async function importAdmins(rows) {

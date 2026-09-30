@@ -113,7 +113,7 @@
     var meta = document.createElement('p');
     meta.className = 'meta';
     meta.appendChild(pill);
-    meta.appendChild(document.createTextNode(' · ' + site.seats + ' seat' + (site.seats === 1 ? '' : 's')));
+    meta.appendChild(document.createTextNode(' · ' + site.contests + ' position' + (site.contests === 1 ? '' : 's')));
 
     var complete = site.eligible > 0 && site.voted === site.eligible;
 
@@ -144,14 +144,17 @@
     card.appendChild(figure);
     card.appendChild(meter);
 
-    // The registry and the ballot box are written in one transaction, so these
-    // two counts must always agree. If they ever don't, say so loudly.
-    if (site.voted !== site.ballots_cast) {
+    // Each voter fills one ballot per contest, all in one transaction, so the
+    // filled count must be exactly voted x contests. If it isn't, say so.
+    var expected = site.voted * site.contests;
+    if (site.ballots_cast !== expected) {
       var warning = document.createElement('p');
       warning.className = 'meta';
       warning.style.color = 'var(--status-critical)';
       warning.style.marginTop = '10px';
-      warning.textContent = 'Mismatch: ' + site.voted + ' marked voted but ' + site.ballots_cast + ' ballots cast.';
+      warning.textContent =
+        'Mismatch: ' + site.voted + ' voted across ' + site.contests + ' positions should be ' +
+        expected + ' ballots, but ' + site.ballots_cast + ' are recorded.';
       card.appendChild(warning);
     }
 
@@ -351,50 +354,73 @@
       return;
     }
 
-    $('results-title').textContent = data.site.name + ' — votes per candidate';
-    $('results-lede').textContent =
-      data.ballotsCast + ' ballots cast for ' + data.site.seats + ' seat' + (data.site.seats === 1 ? '' : 's') + '.';
-
-    var max = data.results.reduce(function (m, c) { return Math.max(m, c.votes); }, 0) || 1;
+    $('results-title').textContent = data.site.name + ' — results';
+    $('results-lede').textContent = data.contests.length + ' positions elected at this site.';
 
     var body = $('results-body');
     body.innerHTML = '';
 
-    data.results.forEach(function (candidate, index) {
-      var elected = index < data.site.seats;
+    data.contests.forEach(function (contest) {
+      var heading = document.createElement('li');
+      heading.style.listStyle = 'none';
+      heading.style.marginTop = '8px';
 
-      var li = document.createElement('li');
-      if (elected) li.className = 'is-elected';
+      var title = document.createElement('h3');
+      title.style.margin = '0 0 2px';
+      title.style.fontSize = '17px';
+      title.textContent = contest.position;
 
-      var label = document.createElement('div');
-      label.className = 'bar-label';
+      var sub = document.createElement('p');
+      sub.className = 'meta';
+      sub.style.margin = '0 0 12px';
+      sub.textContent = contest.ballotsCast + ' votes cast';
 
-      var name = document.createElement('span');
-      if (elected) name.className = 'elected';
-      name.textContent = candidate.name + (elected ? ' — elected' : '');
+      heading.appendChild(title);
+      heading.appendChild(sub);
+      body.appendChild(heading);
 
-      // Value at the tip of the bar, in a text token rather than the mark color.
-      var votes = document.createElement('span');
-      votes.className = 'votes';
-      votes.textContent = candidate.votes;
+      // Each contest scales to its own leader, so a small race isn't crushed
+      // flat next to a large one.
+      var max = contest.results.reduce(function (m, c) { return Math.max(m, c.votes); }, 0) || 1;
 
-      label.appendChild(name);
-      label.appendChild(votes);
+      contest.results.forEach(function (candidate, index) {
+        var elected = index === 0 && !contest.tied;
 
-      var track = document.createElement('div');
-      track.className = 'bar-track';
-      var fill = document.createElement('span');
-      fill.className = 'bar-fill';
-      fill.style.width = ((candidate.votes / max) * 100) + '%';
-      track.appendChild(fill);
+        var li = document.createElement('li');
+        if (elected) li.className = 'is-elected';
 
-      li.appendChild(label);
-      li.appendChild(track);
-      body.appendChild(li);
+        var label = document.createElement('div');
+        label.className = 'bar-label';
+
+        var name = document.createElement('span');
+        if (elected) name.className = 'elected';
+        name.textContent = candidate.name + (elected ? ' — elected' : '');
+
+        // Value at the tip of the bar, in a text token not the mark color.
+        var votes = document.createElement('span');
+        votes.className = 'votes';
+        votes.textContent = candidate.votes;
+
+        label.appendChild(name);
+        label.appendChild(votes);
+
+        var track = document.createElement('div');
+        track.className = 'bar-track';
+        var fill = document.createElement('span');
+        fill.className = 'bar-fill';
+        fill.style.width = ((candidate.votes / max) * 100) + '%';
+        track.appendChild(fill);
+
+        li.appendChild(label);
+        li.appendChild(track);
+        body.appendChild(li);
+      });
     });
 
-    $('results-key').textContent = data.tieAtCutoff
-      ? 'There is a tie at the cutoff for the last seat. Resolve it under your bylaws — the ordering here does not decide it.'
+    var tied = data.contests.filter(function (c) { return c.tied; });
+    $('results-key').textContent = tied.length
+      ? 'Tied: ' + tied.map(function (c) { return c.position; }).join(', ') +
+        '. Resolve under your bylaws — the ordering here does not decide it.'
       : '';
 
     show('admin-results');

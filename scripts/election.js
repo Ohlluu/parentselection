@@ -29,9 +29,10 @@ Typical run:
 
 async function status() {
   const sites = await all(
-    `SELECT s.id, s.name, s.seats, s.status, s.results_released,
+    `SELECT s.id, s.name, s.status, s.results_released,
             (SELECT COUNT(*)::int FROM voters v WHERE v.site_id = s.id) AS eligible,
             (SELECT COUNT(*)::int FROM voters v WHERE v.site_id = s.id AND v.has_voted) AS voted,
+            (SELECT COUNT(DISTINCT c.position)::int FROM candidates c WHERE c.site_id = s.id) AS contests,
             (SELECT COUNT(*)::int FROM candidates c WHERE c.site_id = s.id) AS candidates,
             (SELECT COUNT(*)::int FROM ballots b WHERE b.site_id = s.id AND b.filled) AS cast
        FROM sites s ORDER BY s.name`
@@ -43,8 +44,8 @@ async function status() {
   }
 
   console.log(`\nDatabase: ${usingPostgres ? 'Postgres (DATABASE_URL)' : 'local PGlite (.pgdata)'}\n`);
-  console.log('  SITE                      STATUS   SEATS  CANDS  ELIGIBLE  VOTED  CAST');
-  console.log('  ' + '-'.repeat(74));
+  console.log('  SITE                            STATUS   POS  CANDS  ELIGIBLE  VOTED  BALLOTS');
+  console.log('  ' + '-'.repeat(80));
 
   let totalEligible = 0;
   let totalVoted = 0;
@@ -53,27 +54,32 @@ async function status() {
     totalVoted += s.voted;
     console.log(
       '  ' +
-        s.name.slice(0, 24).padEnd(26) +
+        s.name.slice(0, 30).padEnd(32) +
         s.status.padEnd(9) +
-        String(s.seats).padEnd(7) +
+        String(s.contests).padEnd(5) +
         String(s.candidates).padEnd(7) +
         String(s.eligible).padEnd(10) +
         String(s.voted).padEnd(7) +
         String(s.cast)
     );
   }
-  console.log('  ' + '-'.repeat(74));
-  console.log('  TOTAL'.padEnd(51) + String(totalEligible).padEnd(10) + String(totalVoted));
+  console.log('  ' + '-'.repeat(80));
+  console.log('  TOTAL'.padEnd(63) + String(totalEligible).padEnd(10) + String(totalVoted));
 
-  // The reconciliation check: voted and cast are written in the same
-  // transaction, so they must agree. If they ever diverge, something is wrong
-  // and the result should not be certified.
-  const mismatched = sites.filter((s) => s.voted !== s.cast);
+  // The reconciliation check. Each voter fills one ballot per contest, all in
+  // the same transaction, so filled ballots must be exactly voted x contests.
+  // If that ever fails to hold, something is wrong and the result should not
+  // be certified.
+  const mismatched = sites.filter((s) => s.cast !== s.voted * s.contests);
   if (mismatched.length) {
     console.log('\n  WARNING - registry and ballot box disagree at:');
-    for (const s of mismatched) console.log(`    ${s.name}: ${s.voted} marked voted, ${s.cast} ballots cast`);
+    for (const s of mismatched) {
+      console.log(
+        `    ${s.name}: ${s.voted} voted x ${s.contests} positions = ${s.voted * s.contests} expected, ${s.cast} recorded`
+      );
+    }
   } else {
-    console.log('\n  Reconciled: every site has exactly as many ballots as voters marked.');
+    console.log('\n  Reconciled: ballots recorded match voters marked at every site.');
   }
 
   const outstanding = totalEligible - totalVoted;
@@ -144,47 +150,58 @@ async function setSeats(siteId, n) {
 
 async function openSite(site) {
   const eligible = await get('SELECT COUNT(*)::int AS n FROM voters WHERE site_id = ?', [site.id]);
-  const candidates = await get('SELECT COUNT(*)::int AS n FROM candidates WHERE site_id = ?', [site.id]);
-  const existing = await get('SELECT COUNT(*)::int AS n FROM ballots WHERE site_id = ?', [site.id]);
-  const filled = await get('SELECT COUNT(*)::int AS n FROM ballots WHERE site_id = ? AND filled', [site.id]);
+  const positions = await all(
+    `SELECT position, COUNT(*)::int AS candidates FROM candidates WHERE site_id = ?
+      GROUP BY position, position_order ORDER BY position_order, position`,
+    [site.id]
+  );
 
   if (eligible.n === 0) {
     console.log(`  ! ${site.name}: no voters on the roster, skipped`);
     return;
   }
-  if (candidates.n === 0) {
+  if (positions.length === 0) {
     console.log(`  ! ${site.name}: no candidates, skipped`);
     return;
   }
-  if (candidates.n < site.seats) {
-    console.log(`  ! ${site.name}: ${candidates.n} candidates for ${site.seats} seats, skipped`);
-    return;
-  }
 
-  // Seed the ballot box: one blank ballot per eligible parent, created before
-  // anyone votes. Casting a vote fills a blank at random rather than appending
-  // a new row, so insertion order says nothing about who voted when.
-  const needed = eligible.n - existing.n;
-  if (needed > 0) {
-    if (filled.n > 0) {
-      console.log(`  ! ${site.name}: voting already started, topping up ${needed} blank ballot(s)`);
-    }
-    for (let i = 0; i < needed; i++) {
-      await run('INSERT INTO ballots (id, site_id, filled, choice_ids) VALUES (?, ?, FALSE, NULL)', [
-        randomUUID(),
-        site.id,
-      ]);
-    }
-  } else if (needed < 0) {
-    const removable = await all(
-      'SELECT id FROM ballots WHERE site_id = ? AND filled = FALSE LIMIT ?',
-      [site.id, -needed]
+  // Seed the ballot box: one blank ballot per eligible parent PER CONTEST,
+  // created before anyone votes. Casting a vote fills a blank at random in
+  // each contest rather than appending, so insertion order says nothing about
+  // who voted when, and the four choices are not stored together.
+  for (const { position } of positions) {
+    const existing = await get(
+      'SELECT COUNT(*)::int AS n FROM ballots WHERE site_id = ? AND position = ?',
+      [site.id, position]
     );
-    for (const ballot of removable) await run('DELETE FROM ballots WHERE id = ?', [ballot.id]);
+    const filled = await get(
+      'SELECT COUNT(*)::int AS n FROM ballots WHERE site_id = ? AND position = ? AND filled',
+      [site.id, position]
+    );
+
+    const needed = eligible.n - existing.n;
+    if (needed > 0) {
+      if (filled.n > 0) {
+        console.log(`  ! ${site.name} / ${position}: voting started, topping up ${needed} blank(s)`);
+      }
+      for (let i = 0; i < needed; i++) {
+        await run(
+          'INSERT INTO ballots (id, site_id, position, filled, choice_id) VALUES (?, ?, ?, FALSE, NULL)',
+          [randomUUID(), site.id, position]
+        );
+      }
+    } else if (needed < 0) {
+      const removable = await all(
+        'SELECT id FROM ballots WHERE site_id = ? AND position = ? AND filled = FALSE LIMIT ?',
+        [site.id, position, -needed]
+      );
+      for (const ballot of removable) await run('DELETE FROM ballots WHERE id = ?', [ballot.id]);
+    }
   }
 
   await run(`UPDATE sites SET status = 'open' WHERE id = ?`, [site.id]);
-  console.log(`  + ${site.name}: open, ${eligible.n} eligible, ${candidates.n} candidates, ${site.seats} seat(s)`);
+  const summary = positions.map((p) => `${p.position} (${p.candidates})`).join(', ');
+  console.log(`  + ${site.name}: open, ${eligible.n} eligible - ${summary}`);
 }
 
 async function open(target) {
@@ -239,16 +256,17 @@ async function finalize() {
     await run(`CREATE TABLE ballots_shuffled (
       id UUID PRIMARY KEY,
       site_id TEXT NOT NULL REFERENCES sites(id),
+      position TEXT NOT NULL,
       filled BOOLEAN NOT NULL DEFAULT FALSE,
       choice_ids JSONB
     )`);
     await run(
-      `INSERT INTO ballots_shuffled (id, site_id, filled, choice_ids)
-       SELECT id, site_id, filled, choice_ids FROM ballots ORDER BY random()`
+      `INSERT INTO ballots_shuffled (id, site_id, position, filled, choice_id)
+       SELECT id, site_id, position, filled, choice_id FROM ballots ORDER BY random()`
     );
     await run('DROP TABLE ballots');
     await run('ALTER TABLE ballots_shuffled RENAME TO ballots');
-    await run('CREATE INDEX IF NOT EXISTS idx_ballots_open ON ballots(site_id, filled)');
+    await run('CREATE INDEX IF NOT EXISTS idx_ballots_open ON ballots(site_id, position, filled)');
     await run('COMMIT');
   } catch (err) {
     await run('ROLLBACK').catch(() => {});
@@ -271,29 +289,45 @@ async function results(siteId) {
     process.exit(1);
   }
 
-  const candidates = await all('SELECT id, name FROM candidates WHERE site_id = ? ORDER BY name', [siteId]);
-  const ballots = await all('SELECT choice_ids FROM ballots WHERE site_id = ? AND filled', [siteId]);
+  const candidates = await all(
+    `SELECT id, name, position FROM candidates WHERE site_id = ?
+      ORDER BY position_order, position, name`,
+    [siteId]
+  );
+  const ballots = await all(
+    'SELECT position, choice_id FROM ballots WHERE site_id = ? AND filled',
+    [siteId]
+  );
 
   const tally = Object.fromEntries(candidates.map((c) => [c.id, 0]));
   for (const ballot of ballots) {
-    for (const id of ballot.choice_ids || []) {
-      if (id in tally) tally[id] += 1;
-    }
+    if (ballot.choice_id in tally) tally[ballot.choice_id] += 1;
   }
 
-  const ranked = candidates
-    .map((c) => ({ name: c.name, votes: tally[c.id] }))
-    .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name));
+  console.log(`\n  ${site.name}\n`);
 
-  console.log(`\n  ${site.name} - ${ballots.length} ballots cast, ${site.seats} seat(s)\n`);
-  ranked.forEach((c, i) => {
-    console.log(`  ${i < site.seats ? '*' : ' '} ${c.name.padEnd(30)} ${c.votes}`);
-  });
+  const positions = [...new Set(candidates.map((c) => c.position))];
+  let anyTie = false;
 
-  if (ranked.length > site.seats && ranked[site.seats - 1].votes === ranked[site.seats].votes) {
-    console.log('\n  TIE at the cutoff - resolve under your bylaws, not by this ordering.');
+  for (const position of positions) {
+    const ranked = candidates
+      .filter((c) => c.position === position)
+      .map((c) => ({ name: c.name, votes: tally[c.id] }))
+      .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name));
+
+    const cast = ballots.filter((b) => b.position === position).length;
+    const tied = ranked.length > 1 && ranked[0].votes === ranked[1].votes;
+    if (tied) anyTie = true;
+
+    console.log(`  ${position}  (${cast} votes cast)`);
+    ranked.forEach((c, i) => {
+      console.log(`    ${i === 0 && !tied ? '*' : ' '} ${c.name.padEnd(28)} ${c.votes}`);
+    });
+    if (tied) console.log('      TIE - resolve under your bylaws, not by this ordering.');
+    console.log('');
   }
-  console.log('\n  * = elected\n');
+
+  console.log(anyTie ? '  * = elected, where not tied\n' : '  * = elected\n');
 }
 
 async function main() {

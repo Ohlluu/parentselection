@@ -186,6 +186,31 @@ button.link {
   margin: 4px 0 6px;
 }
 
+/* One block per office on the ballot: Chair, Vice Chair, and so on. */
+.contest {
+  margin-bottom: 28px;
+}
+
+.contest h3 {
+  margin: 0 0 2px;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.contest .contest-hint {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.contest.needs-answer h3 {
+  color: var(--bad);
+}
+
+.contest.needs-answer .choices .choice {
+  border-color: #eec4c1;
+}
+
 .choice {
   display: flex;
   gap: 14px;

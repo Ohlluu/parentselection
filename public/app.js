@@ -17,8 +17,8 @@
       ballotPrivacy: 'Your choice is stored separately from your name. Your center can see that you voted, but not who you voted for.',
       doneHeading: 'Your vote has been recorded',
       doneLede: 'Thank you. You can close this page now. You cannot vote again, and no one can see how you voted.',
-      pickOne: 'Choose one candidate.',
-      pickUpTo: 'Choose up to {n} candidates.',
+      pickOne: 'Choose one.',
+      pickOneEach: 'There are {n} positions. Choose one candidate for each.',
       votingAt: 'Voting at {site}',
       errBadEmail: 'Please enter a valid email address.',
       errNotOnRoster: 'That email is not on the voter list. Please check the spelling, or contact your center to have it added.',
@@ -27,6 +27,7 @@
       errNotOpen: 'Voting is not open at your site right now.',
       errAlreadyVoted: 'Our records show you have already voted. Each parent can vote once.',
       errNoSelection: 'Please choose a candidate before voting.',
+      errIncomplete: 'Please choose a candidate for every position. Still needed: {list}.',
       errTooMany: 'You have selected more candidates than there are seats.',
       errInvalidChoice: 'That candidate is not on your ballot. Please reload the page.',
       errSignedOut: 'Your session has ended. Please sign in again.',
@@ -48,8 +49,8 @@
       ballotPrivacy: 'Su selección se guarda por separado de su nombre. Su centro puede ver que usted votó, pero no por quién votó.',
       doneHeading: 'Su voto ha sido registrado',
       doneLede: 'Gracias. Puede cerrar esta página. No puede votar otra vez, y nadie puede ver por quién votó.',
-      pickOne: 'Elija un candidato.',
-      pickUpTo: 'Elija hasta {n} candidatos.',
+      pickOne: 'Elija uno.',
+      pickOneEach: 'Hay {n} puestos. Elija un candidato para cada uno.',
       votingAt: 'Votando en {site}',
       errBadEmail: 'Ingrese un correo electrónico válido.',
       errNotOnRoster: 'Ese correo electrónico no está en la lista de votantes. Verifique la ortografía o comuníquese con su centro.',
@@ -58,6 +59,7 @@
       errNotOpen: 'La votación no está abierta en su centro en este momento.',
       errAlreadyVoted: 'Nuestros registros muestran que usted ya votó. Cada padre puede votar una vez.',
       errNoSelection: 'Elija un candidato antes de votar.',
+      errIncomplete: 'Elija un candidato para cada puesto. Todavía falta: {list}.',
       errTooMany: 'Ha seleccionado más candidatos que puestos disponibles.',
       errInvalidChoice: 'Ese candidato no está en su boleta. Vuelva a cargar la página.',
       errSignedOut: 'Su sesión ha terminado. Inicie sesión de nuevo.',
@@ -74,13 +76,13 @@
     not_open: 'errNotOpen',
     already_voted: 'errAlreadyVoted',
     no_selection: 'errNoSelection',
-    too_many_selections: 'errTooMany',
+    incomplete_ballot: 'errIncomplete',
     invalid_choice: 'errInvalidChoice',
     not_signed_in: 'errSignedOut'
   };
 
   var lang = (localStorage.getItem('pe_lang') === 'es') ? 'es' : 'en';
-  var state = { seats: 1, selected: [] };
+  var state = { positions: [], choices: {} };
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -195,77 +197,97 @@
       return;
     }
 
-    state.seats = ballot.seats;
-    state.selected = [];
+    state.positions = ballot.contests.map(function (c) { return c.position; });
+    state.choices = {};
 
     $('ballot-heading').textContent = t('votingAt', { site: ballot.siteName });
-    $('ballot-lede').textContent = ballot.seats === 1 ? t('pickOne') : t('pickUpTo', { n: ballot.seats });
+    $('ballot-lede').textContent = t('pickOneEach', { n: ballot.contests.length });
 
-    var container = $('choices');
+    var container = $('contests');
     container.innerHTML = '';
 
-    ballot.candidates.forEach(function (candidate) {
-      var label = document.createElement('label');
-      label.className = 'choice';
+    ballot.contests.forEach(function (contest) {
+      var block = document.createElement('section');
+      block.className = 'contest';
+      block.setAttribute('data-position', contest.position);
 
-      var input = document.createElement('input');
-      input.type = ballot.seats === 1 ? 'radio' : 'checkbox';
-      input.name = 'candidate';
-      input.value = candidate.id;
+      var title = document.createElement('h3');
+      title.textContent = contest.position;
 
-      var text = document.createElement('div');
-      var name = document.createElement('div');
-      name.className = 'name';
-      name.textContent = candidate.name;
-      text.appendChild(name);
+      var hint = document.createElement('p');
+      hint.className = 'contest-hint';
+      hint.textContent = t('pickOne');
 
-      if (candidate.blurb) {
-        var blurb = document.createElement('p');
-        blurb.className = 'blurb';
-        blurb.textContent = candidate.blurb;
-        text.appendChild(blurb);
-      }
+      var choices = document.createElement('div');
+      choices.className = 'choices';
 
-      label.appendChild(input);
-      label.appendChild(text);
-      container.appendChild(label);
+      contest.candidates.forEach(function (candidate) {
+        var label = document.createElement('label');
+        label.className = 'choice';
 
-      input.addEventListener('change', function () { syncSelection(ballot.seats); });
+        var input = document.createElement('input');
+        input.type = 'radio';
+        // Grouping by position is what keeps the four contests independent.
+        input.name = 'contest:' + contest.position;
+        input.value = candidate.id;
+
+        var text = document.createElement('div');
+        var name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = candidate.name;
+        text.appendChild(name);
+
+        if (candidate.blurb) {
+          var blurb = document.createElement('p');
+          blurb.className = 'blurb';
+          blurb.textContent = candidate.blurb;
+          text.appendChild(blurb);
+        }
+
+        label.appendChild(input);
+        label.appendChild(text);
+        choices.appendChild(label);
+
+        input.addEventListener('change', function () {
+          state.choices[contest.position] = candidate.id;
+          block.classList.remove('needs-answer');
+          var siblings = choices.querySelectorAll('.choice');
+          for (var i = 0; i < siblings.length; i++) {
+            siblings[i].classList.toggle('selected', siblings[i].contains(input) && input.checked);
+          }
+        });
+      });
+
+      block.appendChild(title);
+      block.appendChild(hint);
+      block.appendChild(choices);
+      container.appendChild(block);
     });
 
     banner('');
     showStep('step-ballot');
   }
 
-  function syncSelection(seats) {
-    var inputs = $('choices').querySelectorAll('input');
-    state.selected = [];
-
-    for (var i = 0; i < inputs.length; i++) {
-      if (inputs[i].checked) state.selected.push(inputs[i].value);
-    }
-
-    // With more than one seat, stop the parent at the limit rather than
-    // letting them submit a ballot the server will reject.
-    var atLimit = seats > 1 && state.selected.length >= seats;
-    for (var j = 0; j < inputs.length; j++) {
-      inputs[j].disabled = atLimit && !inputs[j].checked;
-      inputs[j].closest('.choice').classList.toggle('selected', inputs[j].checked);
-    }
-  }
-
   $('form-ballot').addEventListener('submit', function (event) {
     event.preventDefault();
     banner('');
 
-    if (state.selected.length === 0) {
-      banner(t('errNoSelection'));
+    // A parent votes once, so an unanswered contest is a forfeited vote
+    // rather than a skipped question. Mark the gaps and stop.
+    var missing = state.positions.filter(function (p) { return !state.choices[p]; });
+    if (missing.length) {
+      var blocks = document.querySelectorAll('.contest');
+      for (var i = 0; i < blocks.length; i++) {
+        blocks[i].classList.toggle('needs-answer', missing.indexOf(blocks[i].getAttribute('data-position')) !== -1);
+      }
+      banner(t('errIncomplete', { list: missing.join(', ') }));
+      document.querySelector('.contest.needs-answer').scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
 
     withButton($('submit-vote'), 'ballotSending', async function () {
       try {
-        await api('/api/vote', { choiceIds: state.selected });
+        await api('/api/vote', { choices: state.choices });
         banner('');
         showStep('step-done');
       } catch (payload) {
