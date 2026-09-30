@@ -7,6 +7,16 @@ const path = require('path');
 const CONNECTION = process.env.DATABASE_URL;
 const LOCAL_DIR = process.env.PGLITE_DIR || path.join(__dirname, '.pgdata');
 
+// In production the PGlite fallback would be a disaster rather than a
+// convenience: on a serverless host it lives on a filesystem that is wiped
+// between invocations, so votes would silently disappear. Refuse to start.
+if (!CONNECTION && process.env.NODE_ENV === 'production') {
+  console.error('FATAL: DATABASE_URL is not set, and the local PGlite fallback is not');
+  console.error('safe in production - serverless filesystems do not persist.');
+  console.error('Connect a Postgres database to this project and redeploy.');
+  process.exit(1);
+}
+
 let query;          // (sql, params) => { rows, rowCount }
 let withClient;     // (fn) => fn(query) inside a dedicated connection
 let closeDb;

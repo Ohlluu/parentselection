@@ -14,14 +14,14 @@
     "election": "node scripts/election.js"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.5.8",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "pg": "^8.23.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.0.2",
+    "@electric-sql/pglite": "^0.5.8"
   },
   "keywords": [
     "election",
