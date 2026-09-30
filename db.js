@@ -9,13 +9,10 @@ const LOCAL_DIR = process.env.PGLITE_DIR || path.join(__dirname, '.pgdata');
 
 // In production the PGlite fallback would be a disaster rather than a
 // convenience: on a serverless host it lives on a filesystem that is wiped
-// between invocations, so votes would silently disappear. Refuse to start.
-if (!CONNECTION && process.env.NODE_ENV === 'production') {
-  console.error('FATAL: DATABASE_URL is not set, and the local PGlite fallback is not');
-  console.error('safe in production - serverless filesystems do not persist.');
-  console.error('Connect a Postgres database to this project and redeploy.');
-  process.exit(1);
-}
+// between invocations, so votes would silently disappear. config.js reports
+// this as a startup problem and the server refuses to serve, rather than
+// exiting here where the reason would be invisible.
+const PRODUCTION_WITHOUT_DB = !CONNECTION && process.env.NODE_ENV === 'production';
 
 let query;          // (sql, params) => { rows, rowCount }
 let withClient;     // (fn) => fn(query) inside a dedicated connection
@@ -44,6 +41,16 @@ if (CONNECTION) {
     }
   };
   closeDb = () => pool.end();
+} else if (PRODUCTION_WITHOUT_DB) {
+  // Don't even reach for PGlite here - it is a devDependency and won't be
+  // installed in production, so requiring it would replace a clear
+  // configuration error with a confusing MODULE_NOT_FOUND.
+  const fail = async () => {
+    throw new Error('DATABASE_URL is not set');
+  };
+  query = fail;
+  withClient = fail;
+  closeDb = async () => {};
 } else {
   const { PGlite } = require('@electric-sql/pglite');
   const fs = require('fs');

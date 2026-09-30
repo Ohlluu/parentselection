@@ -1,11 +1,9 @@
 const crypto = require('crypto');
 
+// Validated in config.js, which the server checks before serving any route.
+// Importing this file must not kill the process - on a serverless host that
+// turns a missing variable into an unexplained 500.
 const SECRET = process.env.SESSION_SECRET || '';
-if (!SECRET || SECRET.length < 32) {
-  console.error('FATAL: SESSION_SECRET must be set to at least 32 characters.');
-  console.error('Generate one with:  node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
-  process.exit(1);
-}
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const MAX_FAILED_ATTEMPTS = 10;

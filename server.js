@@ -13,6 +13,29 @@ const PORT = process.env.PORT || 3000;
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(express.json());
+
+// If the app is misconfigured, say so on every request instead of letting
+// routes fail in ways that look like bugs. Sits ahead of the static files so
+// the diagnostic shows rather than a voting page that cannot work.
+const { problems } = require('./config');
+if (problems.length) {
+  console.error('Startup configuration problems:\n - ' + problems.join('\n - '));
+  app.use((req, res) => {
+    const items = problems
+      .map((p) => `<li>${p.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))}</li>`)
+      .join('');
+    res.status(503).type('html').send(
+      `<!doctype html><meta charset="utf-8"><title>Not configured</title>
+       <div style="font-family:system-ui,sans-serif;max-width:640px;margin:60px auto;padding:0 20px;line-height:1.6">
+         <h1 style="font-size:22px">This election site is not configured yet</h1>
+         <p style="color:#5b6b7c">Voting is not open. An administrator needs to set the following
+         environment variables and redeploy:</p>
+         <ul style="color:#b3261e">${items}</ul>
+       </div>`
+    );
+  });
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // PRIVACY: no request logger is installed on purpose. An access log with IP +
@@ -441,20 +464,26 @@ app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'adm
 // Only listen when run directly. Under Vercel the app is imported by
 // api/index.js and the platform owns the listener.
 if (require.main === module) {
-  // Touch the database before accepting traffic. Locally this claims the
-  // PGlite directory at boot, so a script started afterwards fails with a
-  // clear message instead of opening the same files alongside us.
-  get('SELECT 1')
-    .then(() => {
-      app.listen(PORT, () => {
-        console.log(`Parent election running on http://localhost:${PORT}`);
-        console.log(`Admin console at http://localhost:${PORT}/admin`);
-      });
-    })
-    .catch((err) => {
-      console.error(`\nCould not open the database: ${err.message}\n`);
-      process.exit(1);
+  const listen = () =>
+    app.listen(PORT, () => {
+      console.log(`Parent election running on http://localhost:${PORT}`);
+      console.log(`Admin console at http://localhost:${PORT}/admin`);
     });
+
+  if (problems.length) {
+    // Still serve, so the diagnostic page above can explain what is missing.
+    listen();
+  } else {
+    // Touch the database before accepting traffic. Locally this claims the
+    // PGlite directory at boot, so a script started afterwards fails with a
+    // clear message instead of opening the same files alongside us.
+    get('SELECT 1')
+      .then(listen)
+      .catch((err) => {
+        console.error(`\nCould not open the database: ${err.message}\n`);
+        process.exit(1);
+      });
+  }
 }
 
 module.exports = app;
