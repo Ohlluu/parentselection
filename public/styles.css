@@ -512,3 +512,14 @@ table.roster td.status-no {
     padding: 12px 14px 48px;
   }
 }
+
+.choice.unavailable {
+  opacity: 0.5;
+  background: #eef1f4;
+  cursor: not-allowed;
+}
+.selection-note {
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+.selection-note:empty { display: none; }

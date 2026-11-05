@@ -18,6 +18,12 @@
       doneHeading: 'Your vote has been recorded',
       doneLede: 'Thank you. You can close this page now. You cannot vote again, and no one can see how you voted.',
       pickOne: 'Choose one.',
+      selectedFor: 'Selected for {position}',
+      uniqueHint: 'Choose a different person for each position.',
+      flexibleHint: 'Choose three different people for any three positions. Leave one position unanswered.',
+      clearSelection: 'Clear selection',
+      errThree: 'Choose three different people across three positions, leaving one position unanswered.',
+      errDuplicate: 'Please choose a different person for each position.',
       pickOneEach: 'There are {n} positions. Choose one candidate for each.',
       votingAt: 'Voting at {site}',
       errBadEmail: 'Please enter a valid email address.',
@@ -50,6 +56,12 @@
       doneHeading: 'Su voto ha sido registrado',
       doneLede: 'Gracias. Puede cerrar esta página. No puede votar otra vez, y nadie puede ver por quién votó.',
       pickOne: 'Elija uno.',
+      selectedFor: 'Seleccionado para {position}',
+      uniqueHint: 'Elija una persona diferente para cada puesto.',
+      flexibleHint: 'Elija tres personas diferentes para tres puestos. Deje un puesto sin responder.',
+      clearSelection: 'Borrar selección',
+      errThree: 'Elija tres personas diferentes para tres puestos y deje uno sin responder.',
+      errDuplicate: 'Elija una persona diferente para cada puesto.',
       pickOneEach: 'Hay {n} puestos. Elija un candidato para cada uno.',
       votingAt: 'Votando en {site}',
       errBadEmail: 'Ingrese un correo electrónico válido.',
@@ -78,6 +90,8 @@
     no_selection: 'errNoSelection',
     incomplete_ballot: 'errIncomplete',
     invalid_choice: 'errInvalidChoice',
+    duplicate_candidate: 'errDuplicate',
+    three_selections_required: 'errThree',
     not_signed_in: 'errSignedOut'
   };
 
@@ -105,6 +119,21 @@
     for (var j = 0; j < buttons.length; j++) {
       buttons[j].setAttribute('aria-pressed', String(buttons[j].getAttribute('data-lang') === lang));
     }
+  }
+
+  function updateAvailability() {
+    var selected = {};
+    document.querySelectorAll('#contests input:checked').forEach(function (input) {
+      selected[input.dataset.person] = input.dataset.position;
+    });
+    document.querySelectorAll('#contests input').forEach(function (input) {
+      var position = selected[input.dataset.person];
+      var disabled = state.uniqueCandidates && position && position !== input.dataset.position;
+      input.disabled = Boolean(disabled);
+      var label = input.closest('.choice');
+      label.classList.toggle('unavailable', Boolean(disabled));
+      label.querySelector('.selection-note').textContent = disabled ? t('selectedFor', { position: position }) : '';
+    });
   }
 
   function showStep(id) {
@@ -199,9 +228,12 @@
 
     state.positions = ballot.contests.map(function (c) { return c.position; });
     state.choices = {};
+    state.uniqueCandidates = ballot.uniqueCandidates;
+    state.requiredSelections = ballot.requiredSelections ?? state.positions.length;
+    state.flexible = state.requiredSelections < state.positions.length;
 
     $('ballot-heading').textContent = t('votingAt', { site: ballot.siteName });
-    $('ballot-lede').textContent = t('pickOneEach', { n: ballot.contests.length });
+    $('ballot-lede').textContent = state.flexible ? t('flexibleHint') : t('pickOneEach', { n: ballot.contests.length }) + (state.uniqueCandidates ? ' ' + t('uniqueHint') : '');
 
     var container = $('contests');
     container.innerHTML = '';
@@ -230,6 +262,8 @@
         // Grouping by position is what keeps the four contests independent.
         input.name = 'contest:' + contest.position;
         input.value = candidate.id;
+        input.dataset.person = candidate.name.trim().toLowerCase();
+        input.dataset.position = contest.position;
 
         var text = document.createElement('div');
         var name = document.createElement('div');
@@ -244,6 +278,10 @@
           text.appendChild(blurb);
         }
 
+        var note = document.createElement('p');
+        note.className = 'selection-note';
+        note.setAttribute('aria-live', 'polite');
+        text.appendChild(note);
         label.appendChild(input);
         label.appendChild(text);
         choices.appendChild(label);
@@ -251,6 +289,7 @@
         input.addEventListener('change', function () {
           state.choices[contest.position] = candidate.id;
           block.classList.remove('needs-answer');
+          updateAvailability();
           var siblings = choices.querySelectorAll('.choice');
           for (var i = 0; i < siblings.length; i++) {
             siblings[i].classList.toggle('selected', siblings[i].contains(input) && input.checked);
@@ -261,6 +300,20 @@
       block.appendChild(title);
       block.appendChild(hint);
       block.appendChild(choices);
+      if (state.flexible) {
+        var clear = document.createElement('button');
+        clear.type = 'button';
+        clear.className = 'link';
+        clear.dataset.i18n = 'clearSelection';
+        clear.textContent = t('clearSelection');
+        clear.addEventListener('click', function () {
+          delete state.choices[contest.position];
+          choices.querySelectorAll('input').forEach(function (input) { input.checked = false; });
+          choices.querySelectorAll('.choice').forEach(function (label) { label.classList.remove('selected'); });
+          updateAvailability();
+        });
+        block.appendChild(clear);
+      }
       container.appendChild(block);
     });
 
@@ -275,7 +328,11 @@
     // A parent votes once, so an unanswered contest is a forfeited vote
     // rather than a skipped question. Mark the gaps and stop.
     var missing = state.positions.filter(function (p) { return !state.choices[p]; });
-    if (missing.length) {
+    if (state.flexible && state.positions.length - missing.length !== state.requiredSelections) {
+      banner(t('errThree'));
+      return;
+    }
+    if (!state.flexible && missing.length) {
       var blocks = document.querySelectorAll('.contest');
       for (var i = 0; i < blocks.length; i++) {
         blocks[i].classList.toggle('needs-answer', missing.indexOf(blocks[i].getAttribute('data-position')) !== -1);
@@ -309,6 +366,7 @@
       lang = this.getAttribute('data-lang');
       localStorage.setItem('pe_lang', lang);
       applyLanguage();
+      updateAvailability();
     });
   }
 

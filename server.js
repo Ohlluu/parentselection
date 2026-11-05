@@ -149,6 +149,8 @@ app.get('/api/ballot', requireVoter, async (req, res) => {
     res.json({
       voterName: voter.full_name,
       siteName: voter.site_name,
+      uniqueCandidates: ['justice', 'honey-bear', 'jump-for-joy'].includes(voter.site_id),
+      requiredSelections: ['honey-bear', 'jump-for-joy'].includes(voter.site_id) ? 3 : contests.length,
       status: voter.status,
       hasVoted: voter.has_voted,
       contests,
@@ -176,7 +178,7 @@ app.post('/api/vote', requireVoter, async (req, res) => {
 
     // Build the site's real ballot, then check the submission against it.
     const candidates = await all(
-      'SELECT id, position FROM candidates WHERE site_id = ?',
+      'SELECT id, position, name FROM candidates WHERE site_id = ?',
       [voter.site_id]
     );
     const positionOf = new Map(candidates.map((c) => [c.id, c.position]));
@@ -187,14 +189,26 @@ app.post('/api/vote', requireVoter, async (req, res) => {
     // stop meaning "this parent voted in the election".
     const answered = positions.filter((p) => choices[p]);
     if (answered.length === 0) return res.status(400).json({ error: 'no_selection' });
-    if (answered.length !== positions.length) {
+    const flexible = ['honey-bear', 'jump-for-joy'].includes(voter.site_id);
+    if (flexible && answered.length !== 3) {
+      return res.status(400).json({ error: 'three_selections_required' });
+    }
+    if (!flexible && answered.length !== positions.length) {
       return res.status(400).json({ error: 'incomplete_ballot', missing: positions.filter((p) => !choices[p]) });
     }
     // One vote per contest, and the candidate must stand in that contest at
     // this voter's own site.
-    for (const position of positions) {
+    for (const position of answered) {
       if (positionOf.get(choices[position]) !== position) {
         return res.status(400).json({ error: 'invalid_choice' });
+      }
+    }
+
+    if (['justice', 'honey-bear', 'jump-for-joy'].includes(voter.site_id)) {
+      const nameOf = new Map(candidates.map((c) => [c.id, c.name.trim().toLowerCase()]));
+      const selectedNames = answered.map((position) => nameOf.get(choices[position]));
+      if (new Set(selectedNames).size !== selectedNames.length) {
+        return res.status(400).json({ error: 'duplicate_candidate' });
       }
     }
 
@@ -216,7 +230,7 @@ app.post('/api/vote', requireVoter, async (req, res) => {
                          WHERE site_id = ? AND position = ? AND filled = FALSE
                          ORDER BY random() LIMIT 1
                          FOR UPDATE SKIP LOCKED)`,
-          [choices[position], voter.site_id, position]
+          [choices[position] || null, voter.site_id, position]
         );
         if (result.changes !== 1) throw new Error(`no blank ballot available for ${position}`);
       }
