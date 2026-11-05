@@ -198,6 +198,8 @@ const SCHEMA = [
     failed_attempts INTEGER NOT NULL DEFAULT 0
   )`,
 
+  `ALTER TABLE voters ADD COLUMN IF NOT EXISTS vote_weight INTEGER NOT NULL DEFAULT 1 CHECK (vote_weight IN (1, 2))`,
+
   // THE BALLOT BOX (anonymous). No voter reference, no timestamp.
   // Seeded with one blank row per eligible voter before voting opens. Casting
   // a vote UPDATEs a randomly chosen blank row rather than inserting, so

@@ -16,7 +16,7 @@ Usage:
   node scripts/import-roster.js admins     <file.csv>
 
 Expected columns (header row required, order does not matter):
-  voters      site_id, site_name, full_name, email, code (optional)
+  voters      site_id, site_name, full_name, email, code (optional), children_count (1 or 2, optional)
   candidates  site_id, name, blurb (optional), sort_order (optional)
   admins      email, full_name, role (super|site), site_id, code (optional)
 
@@ -74,6 +74,8 @@ async function importVoters(rows) {
     }
     seen.set(email, line);
 
+    const weight = row.children_count === undefined || row.children_count === '' ? null : Number(row.children_count);
+    if (weight !== null && ![1, 2].includes(weight)) throw new Error(`line ${line}: children_count must be 1 or 2`);
     await ensureSite(siteId, (row.site_name || '').trim());
 
     const existing = await get('SELECT id, has_voted FROM voters WHERE email = ?', [email]);
@@ -85,19 +87,19 @@ async function importVoters(rows) {
       // Keep the existing code unless the CSV supplies a new one, so
       // re-importing a roster does not invalidate codes already sent out.
       if (supplied) {
-        await run('UPDATE voters SET site_id = ?, full_name = ?, code = ? WHERE id = ?', [
-          siteId, fullName, supplied, existing.id,
+        await run('UPDATE voters SET site_id = ?, full_name = ?, code = ?, vote_weight = COALESCE(?, vote_weight) WHERE id = ?', [
+          siteId, fullName, supplied, weight, existing.id,
         ]);
       } else {
-        await run('UPDATE voters SET site_id = ?, full_name = ? WHERE id = ?', [
-          siteId, fullName, existing.id,
+        await run('UPDATE voters SET site_id = ?, full_name = ?, vote_weight = COALESCE(?, vote_weight) WHERE id = ?', [
+          siteId, fullName, weight, existing.id,
         ]);
       }
       updated++;
     } else {
       await run(
-        'INSERT INTO voters (id, site_id, email, full_name, code, has_voted) VALUES (?, ?, ?, ?, ?, FALSE)',
-        [randomUUID(), siteId, email, fullName, supplied || generateCode()]
+        'INSERT INTO voters (id, site_id, email, full_name, code, vote_weight, has_voted) VALUES (?, ?, ?, ?, ?, ?, FALSE)',
+        [randomUUID(), siteId, email, fullName, supplied || generateCode(), weight ?? 1]
       );
       added++;
     }

@@ -143,17 +143,23 @@
     card.appendChild(meta);
     card.appendChild(figure);
     card.appendChild(meter);
+    if (site.eligible_votes !== site.eligible) {
+      var weights = document.createElement('p');
+      weights.className = 'meta';
+      weights.textContent = site.voted_weight + ' of ' + site.eligible_votes + ' weighted votes represented';
+      card.appendChild(weights);
+    }
 
-    // Each voter fills one ballot per contest, all in one transaction, so the
-    // filled count must be exactly voted x contests. If it isn't, say so.
-    var expected = site.voted * site.contests;
+    // Each parent fills vote_weight ballots per contest in one transaction.
+    // Compare weighted participation with the anonymous ballot count.
+    var expected = site.voted_weight * site.contests;
     if (site.ballots_cast !== expected) {
       var warning = document.createElement('p');
       warning.className = 'meta';
       warning.style.color = 'var(--status-critical)';
       warning.style.marginTop = '10px';
       warning.textContent =
-        'Mismatch: ' + site.voted + ' voted across ' + site.contests + ' positions should be ' +
+        'Mismatch: ' + site.voted_weight + ' weighted votes across ' + site.contests + ' positions should be ' +
         expected + ' ballots, but ' + site.ballots_cast + ' are recorded.';
       card.appendChild(warning);
     }
@@ -284,7 +290,7 @@
       : outstanding + ' of ' + data.voters.length + ' parents still to vote.';
 
     var headRow = document.createElement('tr');
-    ['Name', 'Email'].concat(data.showCodes ? ['Code'] : []).concat(['Voted'])
+    ['Name', 'Email', 'Votes'].concat(data.showCodes ? ['Code'] : []).concat(['Voted'])
       .concat(data.showCodes ? [''] : [])
       .forEach(function (label) {
         var th = document.createElement('th');
@@ -301,6 +307,7 @@
       var tr = document.createElement('tr');
       cell(tr, voter.full_name);
       cell(tr, voter.email);
+      cell(tr, String(voter.vote_weight));
 
       if (data.showCodes) {
         var codeCell = cell(tr, voter.code || '');

@@ -218,7 +218,7 @@ app.post('/api/vote', requireVoter, async (req, res) => {
     // ballot per contest is filled in. Nothing written links the two.
     const outcome = await transaction(async (tx) => {
       // FOR UPDATE so two tabs submitting at once cannot both pass the check.
-      const fresh = await tx.get('SELECT has_voted FROM voters WHERE id = ? FOR UPDATE', [voter.id]);
+      const fresh = await tx.get('SELECT has_voted, vote_weight FROM voters WHERE id = ? FOR UPDATE', [voter.id]);
       if (fresh.has_voted) return 'already_voted';
 
       await tx.run('UPDATE voters SET has_voted = TRUE WHERE id = ?', [voter.id]);
@@ -226,13 +226,13 @@ app.post('/api/vote', requireVoter, async (req, res) => {
       for (const position of positions) {
         const result = await tx.run(
           `UPDATE ballots SET filled = TRUE, choice_id = ?
-            WHERE id = (SELECT id FROM ballots
+            WHERE id IN (SELECT id FROM ballots
                          WHERE site_id = ? AND position = ? AND filled = FALSE
-                         ORDER BY random() LIMIT 1
+                         ORDER BY random() LIMIT ?
                          FOR UPDATE SKIP LOCKED)`,
-          [choices[position] || null, voter.site_id, position]
+          [choices[position] || null, voter.site_id, position, fresh.vote_weight]
         );
-        if (result.changes !== 1) throw new Error(`no blank ballot available for ${position}`);
+        if (result.changes !== fresh.vote_weight) throw new Error(`insufficient blank ballots for ${position}`);
       }
       return 'ok';
     });
@@ -319,6 +319,8 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
       `SELECT s.id, s.name, s.status, s.results_released,
               (SELECT COUNT(*)::int FROM voters v WHERE v.site_id = s.id) AS eligible,
               (SELECT COUNT(*)::int FROM voters v WHERE v.site_id = s.id AND v.has_voted) AS voted,
+              (SELECT COALESCE(SUM(v.vote_weight), 0)::int FROM voters v WHERE v.site_id = s.id) AS eligible_votes,
+              (SELECT COALESCE(SUM(v.vote_weight), 0)::int FROM voters v WHERE v.site_id = s.id AND v.has_voted) AS voted_weight,
               (SELECT COUNT(DISTINCT c.position)::int FROM candidates c WHERE c.site_id = s.id) AS contests,
               (SELECT COUNT(*)::int FROM ballots b WHERE b.site_id = s.id AND b.filled) AS ballots_cast
          FROM sites s ${filter}
@@ -341,7 +343,7 @@ app.get('/api/admin/turnout/:siteId', requireAdmin, async (req, res) => {
     // Codes are included only for a super admin - they are enough to vote with.
     const showCodes = req.admin.role === 'super';
     const voters = await all(
-      `SELECT id, full_name, email, has_voted, failed_attempts${showCodes ? ', code' : ''}
+      `SELECT id, full_name, email, vote_weight, has_voted, failed_attempts${showCodes ? ', code' : ''}
          FROM voters WHERE site_id = ? ORDER BY full_name`,
       [req.params.siteId]
     );
@@ -358,7 +360,7 @@ app.get('/api/admin/export/:siteId', requireAdmin, async (req, res) => {
 
     const showCodes = req.admin.role === 'super';
     const voters = await all(
-      `SELECT full_name, email, has_voted${showCodes ? ', code' : ''}
+      `SELECT full_name, email, vote_weight, has_voted${showCodes ? ', code' : ''}
          FROM voters WHERE site_id = ? ORDER BY full_name`,
       [req.params.siteId]
     );
@@ -371,13 +373,13 @@ app.get('/api/admin/export/:siteId', requireAdmin, async (req, res) => {
       return `"${safe.replace(/"/g, '""')}"`;
     };
 
-    const header = showCodes ? ['name', 'email', 'code', 'voted'] : ['name', 'email', 'voted'];
+    const header = showCodes ? ['name', 'email', 'code', 'votes', 'voted'] : ['name', 'email', 'votes', 'voted'];
     const rows = [
       header.join(','),
       ...voters.map((v) => {
         const cells = showCodes
-          ? [v.full_name, v.email, v.code, v.has_voted ? 'yes' : 'no']
-          : [v.full_name, v.email, v.has_voted ? 'yes' : 'no'];
+          ? [v.full_name, v.email, v.code, v.vote_weight, v.has_voted ? 'yes' : 'no']
+          : [v.full_name, v.email, v.vote_weight, v.has_voted ? 'yes' : 'no'];
         return cells.map(escape).join(',');
       }),
     ];

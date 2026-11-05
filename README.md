@@ -65,6 +65,13 @@ and it talks to real Postgres instead.
 Three CSVs, each with a header row. Column order doesn't matter.
 
 **voters.csv** — leave `code` out and one is generated per parent.
+Optional `children_count` is 1 (default) or 2. Each parent signs in and submits
+once; each selection counts once per child. The registry stores `vote_weight`.
+The anonymous ballot box stores separate, randomly selected rows for each
+weighted vote, with no voter reference or weight marker. Turnout counts parents;
+reconciliation compares filled ballots against the sum of participating
+parents' weights multiplied by the number of contests. Import weights before
+opening voting; re-importing does not change a parent who has already voted.
 ```csv
 site_id,site_name,full_name,email,code
 site-a,Main Center,Maria Delgado,maria@example.org,

@@ -32,6 +32,7 @@ async function status() {
     `SELECT s.id, s.name, s.status, s.results_released,
             (SELECT COUNT(*)::int FROM voters v WHERE v.site_id = s.id) AS eligible,
             (SELECT COUNT(*)::int FROM voters v WHERE v.site_id = s.id AND v.has_voted) AS voted,
+            (SELECT COALESCE(SUM(v.vote_weight), 0)::int FROM voters v WHERE v.site_id = s.id AND v.has_voted) AS voted_weight,
             (SELECT COUNT(DISTINCT c.position)::int FROM candidates c WHERE c.site_id = s.id) AS contests,
             (SELECT COUNT(*)::int FROM candidates c WHERE c.site_id = s.id) AS candidates,
             (SELECT COUNT(*)::int FROM ballots b WHERE b.site_id = s.id AND b.filled) AS cast
@@ -66,16 +67,16 @@ async function status() {
   console.log('  ' + '-'.repeat(80));
   console.log('  TOTAL'.padEnd(63) + String(totalEligible).padEnd(10) + String(totalVoted));
 
-  // The reconciliation check. Each voter fills one ballot per contest, all in
-  // the same transaction, so filled ballots must be exactly voted x contests.
+  // The reconciliation check. Each voter fills vote_weight ballots per contest
+  // in one transaction, so filled ballots must match weighted participation.
   // If that ever fails to hold, something is wrong and the result should not
   // be certified.
-  const mismatched = sites.filter((s) => s.cast !== s.voted * s.contests);
+  const mismatched = sites.filter((s) => s.cast !== s.voted_weight * s.contests);
   if (mismatched.length) {
     console.log('\n  WARNING - registry and ballot box disagree at:');
     for (const s of mismatched) {
       console.log(
-        `    ${s.name}: ${s.voted} voted x ${s.contests} positions = ${s.voted * s.contests} expected, ${s.cast} recorded`
+        `    ${s.name}: ${s.voted_weight} weighted votes x ${s.contests} positions = ${s.voted_weight * s.contests} expected, ${s.cast} recorded`
       );
     }
   } else {
@@ -149,7 +150,7 @@ async function setSeats(siteId, n) {
 }
 
 async function openSite(site) {
-  const eligible = await get('SELECT COUNT(*)::int AS n FROM voters WHERE site_id = ?', [site.id]);
+  const eligible = await get('SELECT COALESCE(SUM(vote_weight), 0)::int AS n FROM voters WHERE site_id = ?', [site.id]);
   const positions = await all(
     `SELECT position, COUNT(*)::int AS candidates FROM candidates WHERE site_id = ?
       GROUP BY position, position_order ORDER BY position_order, position`,
@@ -201,7 +202,7 @@ async function openSite(site) {
 
   await run(`UPDATE sites SET status = 'open' WHERE id = ?`, [site.id]);
   const summary = positions.map((p) => `${p.position} (${p.candidates})`).join(', ');
-  console.log(`  + ${site.name}: open, ${eligible.n} eligible - ${summary}`);
+  console.log(`  + ${site.name}: open, ${eligible.n} eligible weighted votes - ${summary}`);
 }
 
 async function open(target) {
