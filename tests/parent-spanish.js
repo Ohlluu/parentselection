@@ -1,0 +1,38 @@
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const vm = require('vm');
+const elements = new Map();
+function element() { return {textContent:'',className:'',dataset:{},classList:{add(){},toggle(){}},addEventListener(){},setAttribute(key,value){this[key]=value;}}; }
+const blocks = ['Chairperson','Vice Chairperson','Secretary','Community Rep'].map(position => {
+  const title=element(), hint=element();
+  return {title,hint,getAttribute:()=>position,querySelector:s=>s==='h3'?title:hint};
+});
+const selectedInput={dataset:{person:'candidate',position:'Chairperson'}};
+const note=element();
+const unavailableInput={dataset:{person:'candidate',position:'Secretary'},closest:()=>({classList:{toggle(){}},querySelector:()=>note})};
+const languageGroup=element();
+const document={documentElement:{},getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelector:s=>languageGroup,querySelectorAll(selector){if(selector==='.contest')return blocks;if(selector==='#contests input:checked')return [selectedInput];if(selector==='#contests input')return [unavailableInput];return [];}};
+const context={document,localStorage:{getItem:()=>null},window:{scrollTo(){}}};
+vm.createContext(context);
+const source=fs.readFileSync(require('path').join(__dirname,'../public/app.js'),'utf8');
+vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.test = { STRINGS, state, positionLabel, applyLanguage, updateAvailability, showError, setLanguage(value) { lang = value; } };})();'),context);
+const api=context.test;
+assert.deepEqual(Object.keys(api.STRINGS.en).sort(),Object.keys(api.STRINGS.es).sort());
+Object.assign(api.state,{voterName:'Parent Name',siteName:'Jump for Joy',positions:blocks.map(b=>b.getAttribute()),choices:{Chairperson:'candidate-id'},uniqueCandidates:true});
+api.showError({error:'incomplete_ballot',missing:['Secretary','Community Rep']});
+api.setLanguage('es');api.applyLanguage();api.updateAvailability();
+assert.equal(document.documentElement.lang,'es');
+assert.deepEqual(blocks.map(b=>b.title.textContent),['Presidente/a','Vicepresidente/a','Secretario/a','Representante de la comunidad']);
+assert.ok(blocks.every(b=>b.hint.textContent==='Elija uno.'));
+assert.equal(note.textContent,'Seleccionado para Presidente/a');
+assert.equal(elements.get('banner').textContent,'Elija un candidato para cada puesto. Todavía falta: Secretario/a, Representante de la comunidad.');
+assert.ok(elements.get('welcome-heading').textContent.includes('Parent Name'));
+assert.equal(elements.get('welcome-center').textContent,'Su centro: Jump for Joy');
+assert.equal(api.state.choices.Chairperson,'candidate-id');
+assert.equal(languageGroup['aria-label'],'Idioma');
+assert.equal(api.positionLabel('Chair'),'Presidente/a');
+assert.equal(api.positionLabel('Vice Chair'),'Vicepresidente/a');
+api.showError({error:'code_required'});assert.equal(elements.get('banner').textContent,'Ingrese su código de votación.');
+api.setLanguage('en');api.applyLanguage();assert.equal(elements.get('banner').textContent,'Please enter your voting code.');
+assert.equal(api.state.choices.Chairperson,'candidate-id');
+console.log('Passed: translation key parity, all position labels, live language changes, selected-candidate notes, validation errors, personalized welcome, accessibility label, and selection preservation.');

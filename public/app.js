@@ -26,6 +26,12 @@
       errDuplicate: 'Please choose a different person for each position.',
       pickOneEach: 'There are {n} positions. Choose one candidate for each.',
       votingAt: 'Voting at {site}',
+      languageLabel: 'Language',
+      chairTitle: 'Chairperson',
+      viceChairTitle: 'Vice Chairperson',
+      secretaryTitle: 'Secretary',
+      communityTitle: 'Community Rep',
+      errCodeRequired: 'Please enter your voting code.',
       welcomeLabel: 'Your parent election',
       welcomeName: 'Welcome, {name}!',
       welcomeCenter: 'Your center: {site}',
@@ -68,6 +74,12 @@
       errDuplicate: 'Elija una persona diferente para cada puesto.',
       pickOneEach: 'Hay {n} puestos. Elija un candidato para cada uno.',
       votingAt: 'Votando en {site}',
+      languageLabel: 'Idioma',
+      chairTitle: 'Presidente/a',
+      viceChairTitle: 'Vicepresidente/a',
+      secretaryTitle: 'Secretario/a',
+      communityTitle: 'Representante de la comunidad',
+      errCodeRequired: 'Ingrese su código de votación.',
       welcomeLabel: 'Su elección de padres',
       welcomeName: '¡Le damos la bienvenida, {name}!',
       welcomeCenter: 'Su centro: {site}',
@@ -90,6 +102,7 @@
 
   var ERROR_KEYS = {
     bad_email: 'errBadEmail',
+    code_required: 'errCodeRequired',
     not_on_roster: 'errNotOnRoster',
     bad_code: 'errBadCode',
     locked: 'errLocked',
@@ -116,6 +129,12 @@
     return text;
   }
 
+  function positionLabel(position) {
+    var keys = { chair: 'chairTitle', chairperson: 'chairTitle', 'vice chair': 'viceChairTitle', 'vice chairperson': 'viceChairTitle', secretary: 'secretaryTitle', 'community rep': 'communityTitle', 'community representative': 'communityTitle' };
+    var key = keys[String(position).trim().toLowerCase()];
+    return key ? t(key) : position;
+  }
+
   function applyLanguage() {
     document.documentElement.lang = lang;
     document.title = t('appTitle');
@@ -127,7 +146,13 @@
     for (var j = 0; j < buttons.length; j++) {
       buttons[j].setAttribute('aria-pressed', String(buttons[j].getAttribute('data-lang') === lang));
     }
+    document.querySelector('.lang').setAttribute('aria-label', t('languageLabel'));
+    document.querySelectorAll('.contest').forEach(function (block) {
+      block.querySelector('h3').textContent = positionLabel(block.getAttribute('data-position'));
+      block.querySelector('.contest-hint').textContent = t('pickOne');
+    });
     updateBallotGreeting();
+    if (state.error) showError(state.error);
   }
 
   function updateBallotGreeting() {
@@ -149,7 +174,7 @@
       input.disabled = Boolean(disabled);
       var label = input.closest('.choice');
       label.classList.toggle('unavailable', Boolean(disabled));
-      label.querySelector('.selection-note').textContent = disabled ? t('selectedFor', { position: position }) : '';
+      label.querySelector('.selection-note').textContent = disabled ? t('selectedFor', { position: positionLabel(position) }) : '';
     });
   }
 
@@ -161,6 +186,7 @@
   }
 
   function banner(message, kind) {
+    state.error = null;
     var el = $('banner');
     if (!message) { el.classList.add('hidden'); return; }
     el.textContent = message;
@@ -169,7 +195,14 @@
 
   function errorText(payload) {
     var key = payload && payload.error && ERROR_KEYS[payload.error];
+    if (payload && payload.offline) return t('errOffline');
+    if (payload && payload.error === 'incomplete_ballot') return t('errIncomplete', { list: (payload.missing || []).map(positionLabel).join(', ') });
     return key ? t(key) : t('errGeneric');
+  }
+
+  function showError(payload) {
+    banner(errorText(payload));
+    state.error = payload;
   }
 
   async function api(url, body) {
@@ -196,7 +229,7 @@
     button.textContent = t(labelKey);
     return work().finally(function () {
       button.disabled = false;
-      button.textContent = original;
+      button.textContent = button.dataset.i18n ? t(button.dataset.i18n) : original;
     });
   }
 
@@ -208,7 +241,8 @@
 
     var email = $('email').value.trim();
     var code = $('code').value.trim();
-    if (!email || !code) return;
+    if (!$('email').validity.valid || !email) return showError({ error: 'bad_email' });
+    if (!code) return showError({ error: 'code_required' });
 
     withButton(this.querySelector('button'), 'loginWorking', async function () {
       try {
@@ -220,7 +254,7 @@
           showStep('step-done');
           return;
         }
-        banner(payload.offline ? t('errOffline') : errorText(payload));
+        showError(payload);
       }
     });
   });
@@ -262,7 +296,7 @@
       block.setAttribute('data-position', contest.position);
 
       var title = document.createElement('h3');
-      title.textContent = contest.position;
+      title.textContent = positionLabel(contest.position);
 
       var hint = document.createElement('p');
       hint.className = 'contest-hint';
@@ -347,7 +381,7 @@
     // rather than a skipped question. Mark the gaps and stop.
     var missing = state.positions.filter(function (p) { return !state.choices[p]; });
     if (state.flexible && state.positions.length - missing.length !== state.requiredSelections) {
-      banner(t('errThree'));
+      showError({ error: 'three_selections_required' });
       return;
     }
     if (!state.flexible && missing.length) {
@@ -355,7 +389,7 @@
       for (var i = 0; i < blocks.length; i++) {
         blocks[i].classList.toggle('needs-answer', missing.indexOf(blocks[i].getAttribute('data-position')) !== -1);
       }
-      banner(t('errIncomplete', { list: missing.join(', ') }));
+      showError({ error: 'incomplete_ballot', missing: missing });
       document.querySelector('.contest.needs-answer').scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
@@ -371,7 +405,7 @@
           showStep('step-done');
           return;
         }
-        banner(payload.offline ? t('errOffline') : errorText(payload));
+        showError(payload);
       }
     });
   });
