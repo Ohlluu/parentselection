@@ -131,12 +131,15 @@ Start the server with `npm start` (or `npm run dev` to auto-reload).
 | **Voting codes** | yes | **no** |
 | Issue a replacement code | yes | no |
 | CSV export | with codes | without codes |
-| Results | after close | after close **and** release |
+| Candidate totals on dashboard | live, weighted | after close **and** release |
+| Results detail | after close | after close **and** release |
 | Release results to a site | yes | no |
 
-Results stay sealed until a site closes. A running tally visible during voting
-would let anyone watching the count change after a known parent votes work out
-how they voted.
+The super-admin dashboard shows live weighted candidate totals by center and
+position. Site coordinators see candidate names but totals stay sealed until
+voting closes and results are released. Watching live totals change after a
+known parent votes can reveal that parent's choice; this is a privacy tradeoff
+of the super-admin view. Live tallies do not label candidates as elected.
 
 Codes are deliberately super-admin only. A code is enough to cast that
 parent's ballot, so whoever can see the list can vote as anyone who hasn't yet.

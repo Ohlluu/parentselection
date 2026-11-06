@@ -328,6 +328,29 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
       params
     );
 
+    const candidateRows = await all(
+      `SELECT c.site_id, c.position, c.name, COUNT(b.id)::int AS votes
+         FROM candidates c JOIN sites s ON s.id = c.site_id
+         LEFT JOIN ballots b ON b.choice_id = c.id AND b.site_id = c.site_id
+                            AND b.position = c.position AND b.filled
+         ${only ? 'WHERE c.site_id IN (' + only.map(() => '?').join(',') + ')' : ''}
+         GROUP BY c.id, c.site_id, c.position, c.name, c.position_order, c.sort_order
+         ORDER BY c.position_order, c.position, c.sort_order, c.name`,
+      params
+    );
+    for (const site of sites) {
+      const visible = req.admin.role === 'super' || (site.status === 'closed' && site.results_released);
+      site.talliesVisible = visible;
+      site.candidateContests = [];
+      for (const row of candidateRows.filter((c) => c.site_id === site.id)) {
+        let contest = site.candidateContests.find((c) => c.position === row.position);
+        if (!contest) {
+          contest = { position: row.position, candidates: [] };
+          site.candidateContests.push(contest);
+        }
+        contest.candidates.push({ name: row.name, votes: visible ? row.votes : null });
+      }
+    }
     res.json({ role: req.admin.role, sites });
   } catch (err) {
     console.error('admin/overview failed:', err.message);

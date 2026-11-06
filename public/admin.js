@@ -164,6 +164,53 @@
       card.appendChild(warning);
     }
 
+    var candidatesSection = document.createElement('section');
+    candidatesSection.className = 'candidate-summary';
+    var candidatesHeading = document.createElement('h4');
+    candidatesHeading.textContent = 'Candidates & votes';
+    candidatesSection.appendChild(candidatesHeading);
+    var tallyNote = document.createElement('p');
+    tallyNote.className = 'meta';
+    tallyNote.textContent = !site.talliesVisible
+      ? 'Vote totals available after voting closes and results are released.'
+      : site.status === 'open'
+        ? 'Current weighted votes · voting is open'
+        : site.status === 'draft' ? 'Voting has not opened.' : 'Weighted vote totals · voting is closed';
+    candidatesSection.appendChild(tallyNote);
+    (site.candidateContests || []).forEach(function (contest) {
+      var table = document.createElement('table');
+      table.className = 'candidate-tally';
+      var caption = document.createElement('caption');
+      caption.textContent = contest.position;
+      table.appendChild(caption);
+      var head = document.createElement('thead');
+      var row = document.createElement('tr');
+      ['Candidate', 'Votes'].forEach(function (text) {
+        var th = document.createElement('th');
+        th.scope = 'col';
+        th.textContent = text;
+        row.appendChild(th);
+      });
+      head.appendChild(row);
+      table.appendChild(head);
+      var tbody = document.createElement('tbody');
+      contest.candidates.forEach(function (candidate) {
+        var tr = document.createElement('tr');
+        cell(tr, candidate.name);
+        cell(tr, candidate.votes === null ? 'Sealed' : String(candidate.votes));
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      candidatesSection.appendChild(table);
+    });
+    if (!site.candidateContests || !site.candidateContests.length) {
+      var empty = document.createElement('p');
+      empty.className = 'meta';
+      empty.textContent = 'No candidates added yet.';
+      candidatesSection.appendChild(empty);
+    }
+    card.appendChild(candidatesSection);
+
     var actions = document.createElement('div');
     actions.className = 'row-actions';
 
