@@ -26,6 +26,10 @@
       errDuplicate: 'Please choose a different person for each position.',
       pickOneEach: 'There are {n} positions. Choose one candidate for each.',
       votingAt: 'Voting at {site}',
+      welcomeLabel: 'Your parent election',
+      welcomeName: 'Welcome, {name}!',
+      welcomeCenter: 'Your center: {site}',
+      welcomeMessage: 'Your voice matters. Choose your representatives below, then cast your vote.',
       errBadEmail: 'Please enter a valid email address.',
       errNotOnRoster: 'That email is not on the voter list. Please check the spelling, or contact your center to have it added.',
       errBadCode: 'That code is not correct. Please check the message your center sent you.',
@@ -64,6 +68,10 @@
       errDuplicate: 'Elija una persona diferente para cada puesto.',
       pickOneEach: 'Hay {n} puestos. Elija un candidato para cada uno.',
       votingAt: 'Votando en {site}',
+      welcomeLabel: 'Su elección de padres',
+      welcomeName: '¡Le damos la bienvenida, {name}!',
+      welcomeCenter: 'Su centro: {site}',
+      welcomeMessage: 'Su voz cuenta. Elija a sus representantes a continuación y luego emita su voto.',
       errBadEmail: 'Ingrese un correo electrónico válido.',
       errNotOnRoster: 'Ese correo electrónico no está en la lista de votantes. Verifique la ortografía o comuníquese con su centro.',
       errBadCode: 'Ese código no es correcto. Revise el mensaje que le envió su centro.',
@@ -119,6 +127,15 @@
     for (var j = 0; j < buttons.length; j++) {
       buttons[j].setAttribute('aria-pressed', String(buttons[j].getAttribute('data-lang') === lang));
     }
+    updateBallotGreeting();
+  }
+
+  function updateBallotGreeting() {
+    if (!state.voterName) return;
+    $('welcome-heading').textContent = t('welcomeName', { name: state.voterName });
+    $('welcome-center').textContent = t('welcomeCenter', { site: state.siteName });
+    $('ballot-heading').textContent = t('votingAt', { site: state.siteName });
+    $('ballot-lede').textContent = state.flexible ? t('flexibleHint') : t('pickOneEach', { n: state.positions.length }) + (state.uniqueCandidates ? ' ' + t('uniqueHint') : '');
   }
 
   function updateAvailability() {
@@ -232,8 +249,9 @@
     state.requiredSelections = ballot.requiredSelections ?? state.positions.length;
     state.flexible = state.requiredSelections < state.positions.length;
 
-    $('ballot-heading').textContent = t('votingAt', { site: ballot.siteName });
-    $('ballot-lede').textContent = state.flexible ? t('flexibleHint') : t('pickOneEach', { n: ballot.contests.length }) + (state.uniqueCandidates ? ' ' + t('uniqueHint') : '');
+    state.voterName = ballot.voterName;
+    state.siteName = ballot.siteName;
+    updateBallotGreeting();
 
     var container = $('contests');
     container.innerHTML = '';

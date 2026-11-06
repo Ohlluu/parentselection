@@ -524,6 +524,25 @@ table.roster td.status-no {
 }
 .selection-note:empty { display: none; }
 
+.welcome-board {
+  margin: -4px -4px 26px;
+  padding: 22px;
+  border: 1px solid #cde2fb;
+  border-radius: var(--radius);
+  background: #eef4fc;
+  overflow-wrap: anywhere;
+}
+.welcome-board .welcome-eyebrow {
+  margin: 0 0 8px;
+  color: var(--accent-dark);
+  font-size: 13px;
+  font-weight: 600;
+}
+.welcome-board h2 { margin-bottom: 8px; }
+.welcome-board .welcome-center { font-weight: 600; }
+.welcome-board p { margin: 8px 0 0; }
+.welcome-board p:last-child { color: var(--ink-soft); font-size: 15px; }
+
 .candidate-summary { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 16px; }
 .candidate-summary h4 { margin: 0 0 4px; font-size: 16px; }
 .candidate-tally { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px; }
