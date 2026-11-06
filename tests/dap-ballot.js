@@ -1,0 +1,42 @@
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const {randomUUID} = require('crypto');
+process.env.DATABASE_URL = '';
+process.env.PGLITE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dap-ballot-'));
+process.env.NODE_ENV = 'test';
+process.env.SESSION_SECRET = 'dap-ballot-integration-test-secret';
+const db = require('../db');
+const app = require('../server');
+const {readCsvObjects} = require('../scripts/csv');
+async function request(routePath, req) {
+  let body;
+  const res = {status() { return this; }, json(value) { body = value; }, setHeader() {}};
+  await app._router.stack.find(s => s.route?.path === routePath).route.stack.at(-1).handle(req, res);
+  return body;
+}
+(async () => {
+  await db.migrate();
+  const site = 'debra-ann-porter';
+  await db.run("INSERT INTO sites (id,name,status) VALUES (?,?,'open')", [site, 'DAP']);
+  const voterId = randomUUID();
+  await db.run('INSERT INTO voters (id,site_id,email,full_name,code) VALUES (?,?,?,?,?)', [voterId,site,'parent@example.org','Test Parent','TEST']);
+  const rows = readCsvObjects(fs.readFileSync(path.join(__dirname, '../rosters/dap-candidates.csv'), 'utf8'));
+  assert.equal(rows.length, 20);
+  assert.equal(rows.some(r => r.name === 'Brianna Porter'), false);
+  for (const row of rows) await db.run('INSERT INTO candidates (id,site_id,position,position_order,name) VALUES (?,?,?,?,?)', [randomUUID(),site,row.position,Number(row.position_order),row.name]);
+  const ballot = await request('/api/ballot', {voterId});
+  assert.equal(ballot.uniqueCandidates, true);
+  assert.equal(ballot.requiredSelections, 4);
+  assert.equal(ballot.contests.length, 4);
+  assert.ok(ballot.contests.every(c => c.candidates.length === 5));
+  const choices = Object.fromEntries(ballot.contests.map(c => [c.position, c.candidates.find(candidate => candidate.name === 'Lizette Soto').id]));
+  assert.equal((await request('/api/vote', {voterId,body:{choices}})).error, 'duplicate_candidate');
+  assert.equal((await db.get('SELECT has_voted FROM voters WHERE id = ?', [voterId])).has_voted, false);
+  ballot.contests.forEach((contest, i) => { choices[contest.position] = contest.candidates[i].id; });
+  for (const contest of ballot.contests) await db.run('INSERT INTO ballots (id,site_id,position) VALUES (?,?,?)', [randomUUID(),site,contest.position]);
+  assert.equal((await request('/api/vote', {voterId,body:{choices}})).ok, true);
+  console.log('Passed: DAP has five candidates per position, Brianna removed, repeated candidates rejected without recording a vote, four distinct choices accepted.');
+  await db.closeDb();
+})().catch(async error => {console.error(error);await db.closeDb();process.exitCode=1;});

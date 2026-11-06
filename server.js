@@ -149,7 +149,7 @@ app.get('/api/ballot', requireVoter, async (req, res) => {
     res.json({
       voterName: voter.full_name,
       siteName: voter.site_name,
-      uniqueCandidates: ['justice', 'honey-bear', 'jump-for-joy'].includes(voter.site_id),
+      uniqueCandidates: ['justice', 'honey-bear', 'jump-for-joy', 'debra-ann-porter'].includes(voter.site_id),
       requiredSelections: ['honey-bear', 'jump-for-joy'].includes(voter.site_id) ? 3 : contests.length,
       status: voter.status,
       hasVoted: voter.has_voted,
@@ -204,7 +204,7 @@ app.post('/api/vote', requireVoter, async (req, res) => {
       }
     }
 
-    if (['justice', 'honey-bear', 'jump-for-joy'].includes(voter.site_id)) {
+    if (['justice', 'honey-bear', 'jump-for-joy', 'debra-ann-porter'].includes(voter.site_id)) {
       const nameOf = new Map(candidates.map((c) => [c.id, c.name.trim().toLowerCase()]));
       const selectedNames = answered.map((position) => nameOf.get(choices[position]));
       if (new Set(selectedNames).size !== selectedNames.length) {
