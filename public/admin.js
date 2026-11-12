@@ -177,12 +177,6 @@
         ? 'Current weighted votes · voting is open'
         : site.status === 'draft' ? 'Voting has not opened.' : 'Weighted vote totals · voting is closed';
     candidatesSection.appendChild(tallyNote);
-    (site.multiplePositionLeaders || []).forEach(function (candidate) {
-      var conflict = document.createElement('p');
-      conflict.className = 'candidate-conflict';
-      conflict.textContent = candidate.name + ' has the highest votes (including ties) in multiple positions: ' + candidate.positions.join(', ') + '. Final office assignments need a decision; these labels show each race separately.';
-      candidatesSection.appendChild(conflict);
-    });
     (site.candidateContests || []).forEach(function (contest) {
       var table = document.createElement('table');
       table.className = 'candidate-tally';
