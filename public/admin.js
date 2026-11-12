@@ -177,11 +177,17 @@
         ? 'Current weighted votes · voting is open'
         : site.status === 'draft' ? 'Voting has not opened.' : 'Weighted vote totals · voting is closed';
     candidatesSection.appendChild(tallyNote);
+    (site.multiplePositionLeaders || []).forEach(function (candidate) {
+      var conflict = document.createElement('p');
+      conflict.className = 'candidate-conflict';
+      conflict.textContent = candidate.name + ' has the highest votes (including ties) in multiple positions: ' + candidate.positions.join(', ') + '. Final office assignments need a decision; these labels show each race separately.';
+      candidatesSection.appendChild(conflict);
+    });
     (site.candidateContests || []).forEach(function (contest) {
       var table = document.createElement('table');
       table.className = 'candidate-tally';
       var caption = document.createElement('caption');
-      caption.textContent = contest.position;
+      caption.textContent = contest.position + (site.talliesVisible && !contest.hasVotes ? ' · No votes yet' : '');
       table.appendChild(caption);
       var head = document.createElement('thead');
       var row = document.createElement('tr');
@@ -196,7 +202,15 @@
       var tbody = document.createElement('tbody');
       contest.candidates.forEach(function (candidate) {
         var tr = document.createElement('tr');
-        cell(tr, candidate.name);
+        var nameCell = cell(tr, '');
+        if (candidate.leading) {
+          var badge = document.createElement('span');
+          badge.className = 'candidate-leader' + (candidate.tied ? ' candidate-leader--tie' : '');
+          badge.textContent = candidate.tied ? 'Tied for first' : site.status === 'closed' ? 'Highest votes' : 'Leading';
+          nameCell.appendChild(badge);
+          tr.className = 'candidate-leading-row';
+        }
+        nameCell.appendChild(document.createTextNode(candidate.name));
         cell(tr, candidate.votes === null ? 'Sealed' : String(candidate.votes));
         tbody.appendChild(tr);
       });

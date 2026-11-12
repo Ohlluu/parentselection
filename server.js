@@ -350,6 +350,24 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
         }
         contest.candidates.push({ name: row.name, votes: visible ? row.votes : null });
       }
+      const topPositions = new Map();
+      for (const contest of site.candidateContests) {
+        contest.hasVotes = visible && contest.candidates.some((c) => c.votes > 0);
+        if (!visible) continue;
+        contest.candidates.sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name));
+        const top = contest.candidates[0]?.votes || 0;
+        const leaders = contest.candidates.filter((c) => top > 0 && c.votes === top);
+        for (const candidate of contest.candidates) {
+          candidate.leading = top > 0 && candidate.votes === top;
+          candidate.tied = candidate.leading && leaders.length > 1;
+          if (candidate.leading) {
+            const key = candidate.name.trim().toLowerCase();
+            if (!topPositions.has(key)) topPositions.set(key, { name: candidate.name, positions: [] });
+            topPositions.get(key).positions.push(contest.position);
+          }
+        }
+      }
+      site.multiplePositionLeaders = [...topPositions.values()].filter((c) => c.positions.length > 1);
     }
     res.json({ role: req.admin.role, sites });
   } catch (err) {
