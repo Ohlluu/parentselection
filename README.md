@@ -182,3 +182,14 @@ request-order record.
 Several parents can share one IP on a center's wifi, so don't set it too tight;
 guessing one parent's code is capped separately at 10 wrong attempts, after
 which a super admin has to unlock them.
+
+## Sharing results with organizers
+
+A super admin can click **Share results** to generate a read-only link covering
+all centers. Anyone holding the link can view live weighted candidate totals,
+leader/tie labels, and print results without signing in. The signed link expires
+after 30 days. It cannot access admin functions, voter rosters, emails, or voting
+codes. The link token stays in the URL fragment and is sent only as an
+Authorization header to the dedicated results endpoint. No new accounts or
+database migration are required. Changing SESSION_SECRET invalidates shared
+links and existing login sessions.

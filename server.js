@@ -307,27 +307,7 @@ function canSeeSite(admin, siteId) {
 
 // --- admin: turnout -------------------------------------------------------
 
-app.get('/api/admin/overview', requireAdmin, async (req, res) => {
-  try {
-    const only = visibleSites(req.admin);
-    const filter = only ? `WHERE s.id IN (${only.map(() => '?').join(',')})` : '';
-    const params = only || [];
-
-    // COUNT() is a bigint, which node-pg hands back as a string. Cast to int
-    // or the dashboard ends up doing "18" + "21" = "1821".
-    const sites = await all(
-      `SELECT s.id, s.name, s.status, s.results_released,
-              (SELECT COUNT(*)::int FROM voters v WHERE v.site_id = s.id) AS eligible,
-              (SELECT COUNT(*)::int FROM voters v WHERE v.site_id = s.id AND v.has_voted) AS voted,
-              (SELECT COALESCE(SUM(v.vote_weight), 0)::int FROM voters v WHERE v.site_id = s.id) AS eligible_votes,
-              (SELECT COALESCE(SUM(v.vote_weight), 0)::int FROM voters v WHERE v.site_id = s.id AND v.has_voted) AS voted_weight,
-              (SELECT COUNT(DISTINCT c.position)::int FROM candidates c WHERE c.site_id = s.id) AS contests,
-              (SELECT COUNT(*)::int FROM ballots b WHERE b.site_id = s.id AND b.filled) AS ballots_cast
-         FROM sites s ${filter}
-        ORDER BY s.name`,
-      params
-    );
-
+async function attachCandidateTallies(sites, only, showLive) {
     const candidateRows = await all(
       `SELECT c.site_id, c.position, c.name, COUNT(b.id)::int AS votes
          FROM candidates c JOIN sites s ON s.id = c.site_id
@@ -336,10 +316,10 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
          ${only ? 'WHERE c.site_id IN (' + only.map(() => '?').join(',') + ')' : ''}
          GROUP BY c.id, c.site_id, c.position, c.name, c.position_order, c.sort_order
          ORDER BY c.position_order, c.position, c.sort_order, c.name`,
-      params
+      only || []
     );
     for (const site of sites) {
-      const visible = req.admin.role === 'super' || (site.status === 'closed' && site.results_released);
+      const visible = showLive || (site.status === 'closed' && site.results_released);
       site.talliesVisible = visible;
       site.candidateContests = [];
       for (const row of candidateRows.filter((c) => c.site_id === site.id)) {
@@ -369,6 +349,49 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
       }
       site.multiplePositionLeaders = [...topPositions.values()].filter((c) => c.positions.length > 1);
     }
+}
+
+app.post('/api/admin/share-results', requireAdmin, requireSuper, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ path: '/results.html#token=' + encodeURIComponent(auth.issueResultsLink()), expiresInDays: 30 });
+});
+
+app.get('/api/shared-results', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const token = String(req.headers.authorization || '').replace(/^Bearer /, '');
+  const access = auth.readSession(token);
+  if (!access || access.kind !== 'shared_results') return res.status(401).json({ error: 'invalid_link' });
+  try {
+    const sites = await all('SELECT id,name,status FROM sites ORDER BY name');
+    await attachCandidateTallies(sites, null, true);
+    res.json({ sites: sites.map(({id,name,status,candidateContests}) => ({id,name,status,candidateContests})) });
+  } catch (err) {
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+app.get('/api/admin/overview', requireAdmin, async (req, res) => {
+  try {
+    const only = visibleSites(req.admin);
+    const filter = only ? `WHERE s.id IN (${only.map(() => '?').join(',')})` : '';
+    const params = only || [];
+
+    // COUNT() is a bigint, which node-pg hands back as a string. Cast to int
+    // or the dashboard ends up doing "18" + "21" = "1821".
+    const sites = await all(
+      `SELECT s.id, s.name, s.status, s.results_released,
+              (SELECT COUNT(*)::int FROM voters v WHERE v.site_id = s.id) AS eligible,
+              (SELECT COUNT(*)::int FROM voters v WHERE v.site_id = s.id AND v.has_voted) AS voted,
+              (SELECT COALESCE(SUM(v.vote_weight), 0)::int FROM voters v WHERE v.site_id = s.id) AS eligible_votes,
+              (SELECT COALESCE(SUM(v.vote_weight), 0)::int FROM voters v WHERE v.site_id = s.id AND v.has_voted) AS voted_weight,
+              (SELECT COUNT(DISTINCT c.position)::int FROM candidates c WHERE c.site_id = s.id) AS contests,
+              (SELECT COUNT(*)::int FROM ballots b WHERE b.site_id = s.id AND b.filled) AS ballots_cast
+         FROM sites s ${filter}
+        ORDER BY s.name`,
+      params
+    );
+
+    await attachCandidateTallies(sites, only, req.admin.role === 'super');
     res.json({ role: req.admin.role, sites });
   } catch (err) {
     console.error('admin/overview failed:', err.message);

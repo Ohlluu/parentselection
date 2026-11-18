@@ -42,11 +42,19 @@ function normalizeEmail(email) {
 
 // Sessions are a signed cookie, not a database table, so the server keeps no
 // record of who was signed in at what time.
-function issueSession(payload) {
-  const body = { ...payload, exp: Date.now() + SESSION_TTL_MS };
+function signToken(payload, ttl) {
+  const body = { ...payload, exp: Date.now() + ttl };
   const encoded = Buffer.from(JSON.stringify(body)).toString('base64url');
   const sig = crypto.createHmac('sha256', SECRET).update(encoded).digest('base64url');
   return `${encoded}.${sig}`;
+}
+
+function issueSession(payload) {
+  return signToken(payload, SESSION_TTL_MS);
+}
+
+function issueResultsLink() {
+  return signToken({ kind: 'shared_results' }, 30 * 24 * 60 * 60 * 1000);
 }
 
 function readSession(token) {
@@ -104,6 +112,7 @@ module.exports = {
   codesMatch,
   normalizeEmail,
   issueSession,
+  issueResultsLink,
   readSession,
   sessionFromRequest,
   setSessionCookie,

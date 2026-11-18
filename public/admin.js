@@ -346,6 +346,22 @@
     allResults.addEventListener('click', loadAllResults);
     container.appendChild(allResults);
 
+    if (state.role === 'super') {
+      var share = document.createElement('button');
+      share.type = 'button';
+      share.textContent = 'Share results';
+      share.addEventListener('click', async function () {
+        try {
+          var result = await api('/api/admin/share-results', {});
+          var url = new URL(result.path, window.location.origin).href;
+          window.prompt('Anyone with this link can view all centers’ results for 30 days. Copy and share:', url);
+        } catch (error) {
+          banner(messageFor(error));
+        }
+      });
+      container.appendChild(share);
+    }
+
     var print = document.createElement('button');
     print.type = 'button';
     print.textContent = 'Print all centers';

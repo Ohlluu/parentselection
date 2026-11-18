@@ -558,6 +558,16 @@ table.roster td.status-no {
 .print-only { display: none; }
 
 @media print {
+  .shared-results { background: white; color: black; }
+  .shared-results .shell { max-width: none; padding: 0; }
+  .shared-results .row-actions { display: none; }
+  .shared-results #shared-centers { display: block; }
+  .shared-results .site-card { break-before: page; border: 0; padding: 0; }
+  .shared-results .candidate-tally { break-inside: avoid; }
+  .shared-results .candidate-leader { border: 1px solid currentColor; }
+}
+
+@media print {
   @page { margin: 0.6in; }
   .election-admin { background: white; color: black; font-size: 11pt; }
   .election-admin .shell { max-width: none; padding: 0; margin: 0; }
