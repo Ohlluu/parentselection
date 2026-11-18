@@ -267,7 +267,7 @@
     } catch (payload) {
       banner(messageFor(payload));
       show('admin-login');
-      return;
+      return false;
     }
 
     state.role = data.role;
@@ -291,6 +291,7 @@
     renderHeaderActions(true);
     banner('');
     show('admin-overview');
+    return true;
   }
 
   function renderHeaderActions(signedIn) {
@@ -303,6 +304,23 @@
     back.textContent = 'Overview';
     back.addEventListener('click', loadOverview);
     container.appendChild(back);
+
+    var print = document.createElement('button');
+    print.type = 'button';
+    print.textContent = 'Print all centers';
+    print.addEventListener('click', async function () {
+      print.disabled = true;
+      try {
+        if (!await loadOverview()) return;
+        $('print-generated').textContent = 'Election overview · ' + new Date().toLocaleString();
+        window.print();
+      } catch (error) {
+        banner('Could not prepare the election report. Please try again.');
+      } finally {
+        print.disabled = false;
+      }
+    });
+    container.appendChild(print);
 
     var out = document.createElement('button');
     out.type = 'button';

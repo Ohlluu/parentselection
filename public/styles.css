@@ -554,3 +554,31 @@ table.roster td.status-no {
 .candidate-leader { display: inline-block; margin: 0 6px 3px 0; padding: 2px 6px; border-radius: 5px; background: var(--good-soft); color: var(--good); font-size: 11px; font-weight: 650; }
 .candidate-leader--tie { background: var(--warn-soft); color: var(--warn); }
 .candidate-leading-row td { font-weight: 600; }
+
+.print-only { display: none; }
+
+@media print {
+  @page { margin: 0.6in; }
+  .election-admin { background: white; color: black; font-size: 11pt; }
+  .election-admin .shell { max-width: none; padding: 0; margin: 0; }
+  .election-admin header.bar { padding: 0 0 12pt; }
+  .election-admin .row-actions,
+  .election-admin #banner,
+  .election-admin #admin-login,
+  .election-admin #admin-roster,
+  .election-admin #admin-results { display: none !important; }
+  .election-admin .print-only { display: block; margin: 0 0 16pt; font-size: 10pt; }
+  .election-admin #admin-overview { display: block !important; }
+  .election-admin #site-grid { display: block; }
+  .election-admin #site-grid > .site-card { break-before: page; border: 0; padding: 0; }
+  .election-admin #kpi-row { grid-template-columns: repeat(3, 1fr); }
+  .election-admin .candidate-tally { font-size: 10pt; break-inside: avoid; }
+  .election-admin .candidate-tally th,
+  .election-admin .candidate-tally td { padding: 4pt 0; }
+  .election-admin .candidate-tally thead { display: table-header-group; }
+  .election-admin h3,
+  .election-admin h4 { break-after: avoid; }
+  .election-admin .candidate-leader,
+  .election-admin .pill { border: 1px solid currentColor; }
+  .election-admin .site-card { box-shadow: none; }
+}
