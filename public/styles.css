@@ -582,3 +582,11 @@ table.roster td.status-no {
   .election-admin .pill { border: 1px solid currentColor; }
   .election-admin .site-card { box-shadow: none; }
 }
+
+@media print {
+  .election-admin #admin-all-results { display: none !important; }
+  .election-admin[data-admin-view="admin-all-results"] #admin-overview { display: none !important; }
+  .election-admin[data-admin-view="admin-all-results"] #admin-all-results { display: block !important; }
+  .election-admin #all-results-centers { display: block; }
+  .election-admin .all-results-center { break-before: page; border: 0; padding: 0; }
+}

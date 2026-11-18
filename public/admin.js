@@ -13,9 +13,11 @@
   }
 
   function show(id) {
-    ['admin-login', 'admin-overview', 'admin-roster', 'admin-results'].forEach(function (section) {
+    ['admin-login', 'admin-overview', 'admin-roster', 'admin-results', 'admin-all-results'].forEach(function (section) {
       $(section).classList.toggle('hidden', section !== id);
     });
+    state.view = id;
+    document.body.dataset.adminView = id;
     window.scrollTo(0, 0);
   }
 
@@ -164,6 +166,50 @@
       card.appendChild(warning);
     }
 
+    card.appendChild(candidateSummary(site));
+
+    var actions = document.createElement('div');
+    actions.className = 'row-actions';
+
+    var rosterButton = document.createElement('button');
+    rosterButton.type = 'button';
+    rosterButton.textContent = state.role === 'super' ? 'Parents & codes' : 'Who has voted';
+    rosterButton.addEventListener('click', function () { loadRoster(site); });
+    actions.appendChild(rosterButton);
+
+    var exportLink = document.createElement('a');
+    exportLink.href = '/api/admin/export/' + encodeURIComponent(site.id);
+    exportLink.textContent = 'Export CSV';
+    actions.appendChild(exportLink);
+
+    if (site.status === 'closed') {
+      var resultsButton = document.createElement('button');
+      resultsButton.type = 'button';
+      resultsButton.textContent = 'Results';
+      resultsButton.addEventListener('click', function () { loadResults(site); });
+      actions.appendChild(resultsButton);
+
+      if (state.role === 'super' && !site.results_released) {
+        var releaseButton = document.createElement('button');
+        releaseButton.type = 'button';
+        releaseButton.textContent = 'Release to site';
+        releaseButton.addEventListener('click', async function () {
+          try {
+            await api('/api/admin/release/' + encodeURIComponent(site.id), {});
+            await loadOverview();
+          } catch (payload) {
+            banner(messageFor(payload));
+          }
+        });
+        actions.appendChild(releaseButton);
+      }
+    }
+
+    card.appendChild(actions);
+    return card;
+  }
+
+  function candidateSummary(site) {
     var candidatesSection = document.createElement('section');
     candidatesSection.className = 'candidate-summary';
     var candidatesHeading = document.createElement('h4');
@@ -217,47 +263,7 @@
       empty.textContent = 'No candidates added yet.';
       candidatesSection.appendChild(empty);
     }
-    card.appendChild(candidatesSection);
-
-    var actions = document.createElement('div');
-    actions.className = 'row-actions';
-
-    var rosterButton = document.createElement('button');
-    rosterButton.type = 'button';
-    rosterButton.textContent = state.role === 'super' ? 'Parents & codes' : 'Who has voted';
-    rosterButton.addEventListener('click', function () { loadRoster(site); });
-    actions.appendChild(rosterButton);
-
-    var exportLink = document.createElement('a');
-    exportLink.href = '/api/admin/export/' + encodeURIComponent(site.id);
-    exportLink.textContent = 'Export CSV';
-    actions.appendChild(exportLink);
-
-    if (site.status === 'closed') {
-      var resultsButton = document.createElement('button');
-      resultsButton.type = 'button';
-      resultsButton.textContent = 'Results';
-      resultsButton.addEventListener('click', function () { loadResults(site); });
-      actions.appendChild(resultsButton);
-
-      if (state.role === 'super' && !site.results_released) {
-        var releaseButton = document.createElement('button');
-        releaseButton.type = 'button';
-        releaseButton.textContent = 'Release to site';
-        releaseButton.addEventListener('click', async function () {
-          try {
-            await api('/api/admin/release/' + encodeURIComponent(site.id), {});
-            await loadOverview();
-          } catch (payload) {
-            banner(messageFor(payload));
-          }
-        });
-        actions.appendChild(releaseButton);
-      }
-    }
-
-    card.appendChild(actions);
-    return card;
+    return candidatesSection;
   }
 
   async function loadOverview() {
@@ -294,6 +300,35 @@
     return true;
   }
 
+  async function loadAllResults() {
+    try {
+      var data = await api('/api/admin/overview');
+      state.role = data.role;
+      state.sites = data.sites;
+      var container = $('all-results-centers');
+      container.innerHTML = '';
+      data.sites.forEach(function (site) {
+        var card = document.createElement('article');
+        card.className = 'site-card all-results-center';
+        var heading = document.createElement('h3');
+        heading.textContent = site.name;
+        card.appendChild(heading);
+        card.appendChild(candidateSummary(site));
+        container.appendChild(card);
+      });
+      $('all-results-updated').textContent = 'Updated ' + new Date().toLocaleString();
+      $('admin-sub').textContent = data.role === 'super' ? 'Results for all centers' : 'Results for your center';
+      renderHeaderActions(true);
+      banner('');
+      show('admin-all-results');
+      return true;
+    } catch (payload) {
+      banner(messageFor(payload));
+      if (payload.error === 'not_signed_in') show('admin-login');
+      return false;
+    }
+  }
+
   function renderHeaderActions(signedIn) {
     var container = $('header-actions');
     container.innerHTML = '';
@@ -305,14 +340,21 @@
     back.addEventListener('click', loadOverview);
     container.appendChild(back);
 
+    var allResults = document.createElement('button');
+    allResults.type = 'button';
+    allResults.textContent = state.role === 'super' ? 'Results for all centers' : 'Center results';
+    allResults.addEventListener('click', loadAllResults);
+    container.appendChild(allResults);
+
     var print = document.createElement('button');
     print.type = 'button';
     print.textContent = 'Print all centers';
     print.addEventListener('click', async function () {
       print.disabled = true;
       try {
-        if (!await loadOverview()) return;
-        $('print-generated').textContent = 'Election overview · ' + new Date().toLocaleString();
+        var resultsView = state.view === 'admin-all-results';
+        if (!await (resultsView ? loadAllResults() : loadOverview())) return;
+        $('print-generated').textContent = (resultsView ? 'Election results · ' : 'Election overview · ') + new Date().toLocaleString();
         window.print();
       } catch (error) {
         banner('Could not prepare the election report. Please try again.');
